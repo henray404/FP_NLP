@@ -1,0 +1,39 @@
+# Data extraction
+pdfplumber
+pytesseract
+beautifulsoup4
+html2text
+requests
+langdetect
+
+# VLM extraction (notebooks/extract_vlm_gemini.ipynb): render PDF pages -> VLM
+pymupdf             # render halaman PDF jadi gambar (tanpa poppler)
+pillow
+google-genai        # backend Gemini; swap ke transformers+vllm utk Qwen2.5-VL lokal
+
+# Embeddings + dedup
+sentence-transformers
+faiss-cpu           # swap to faiss-gpu on A100
+
+# LLM inference (validity check + CoT generation)
+vllm
+transformers
+accelerate
+# torch
+
+# Training
+# LLaMA-Factory installed separately via git clone + pip install -e
+
+# Utils
+jsonlines
+tqdm
+python-dotenv
+
+# Evaluation
+sympy
+
+
+# --extra-index-url https://download.pytorch.org/whl/nightly/cu128
+# torch==2.12.0.dev20260407+cu128
+# torchaudio==2.11.0.dev20260407+cu128
+# torchvision==0.27.0.dev20260407+cu128

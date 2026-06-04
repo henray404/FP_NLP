@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.env
+*.egg-info/
+
+# Data (besar -> disimpan di Google Drive, jangan push)
+# Keep folder data/ tapi abaikan semua isinya kecuali README placeholder.
+data/*
+!data/README.md
+
+CLAUDE.md
+
+# Model checkpoints
+output/
+merged/
+*.bin
+*.safetensors
+
+# Jupyter
+.ipynb_checkpoints/
+
+
+# Logs
+wandb/
+*.log
