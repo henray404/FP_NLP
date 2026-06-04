@@ -5,7 +5,7 @@ Isi folder `data/` **tidak** disimpan di git (terlalu besar). Datanya ada di Goo
 ## Link Google Drive
 
 <!-- TODO: tempel link Google Drive kamu di sini -->
-(belum diisi)
+https://drive.google.com/drive/u/1/folders/1Y8RaC_XzbNTbjpMEdlrkNvL3k5GtC-0u
 
 ## Struktur yang diharapkan
 
