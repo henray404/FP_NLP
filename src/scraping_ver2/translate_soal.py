@@ -157,13 +157,13 @@ def translate_entries(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Translate English entries in _all_soal.jsonl to Indonesian"
+        description="Translate English entries in clean_vlm.jsonl to Indonesian"
     )
     parser.add_argument(
         "--input",
         type=str,
-        default="data/un_pdfs/_all_soal.jsonl",
-        help="Input JSONL (default: data/un_pdfs/_all_soal.jsonl)",
+        default="data/un_pdfs/clean_vlm.jsonl",
+        help="Input JSONL (default: data/un_pdfs/clean_vlm.jsonl)",
     )
     parser.add_argument(
         "--output",

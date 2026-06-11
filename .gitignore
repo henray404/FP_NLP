@@ -6,8 +6,9 @@ __pycache__/
 # Data (besar -> disimpan di Google Drive, jangan push)
 # Keep folder data/ tapi abaikan semua isinya kecuali README placeholder.
 data/*
-!data/README.md
 
+!data/README.md
+CLAUDE_PROMPT.md
 CLAUDE.md
 
 # Model checkpoints
