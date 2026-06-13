@@ -9,8 +9,8 @@ Filter rule-based (hardcoded):
   - Normalisasi: kalimat biasa = plain text, notasi math = LaTeX
 
 Usage:
-    python -m src.data_pipeline.to_csv data/extracted/soal.jsonl data/filtered/soal.csv
-    python -m src.data_pipeline.to_csv data/extracted/ data/filtered/soal.csv
+    python -m src.preprop.to_csv data/extracted/soal.jsonl data/filtered/soal.csv
+    python -m src.preprop.to_csv data/extracted/ data/filtered/soal.csv
 """
 import argparse
 import csv

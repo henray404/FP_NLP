@@ -3,8 +3,8 @@ Extract soal matematika dari PDF.
 Output: data/extracted/*.jsonl  format {"question": str, "answer": str, "source": str}
 
 Usage:
-    python -m src.data_pipeline.extract data/raw/osn/soal.pdf
-    python -m src.data_pipeline.extract data/raw/osn/
+    python -m src.preprop.extract data/raw/osn/soal.pdf
+    python -m src.preprop.extract data/raw/osn/
 """
 import json
 import re
