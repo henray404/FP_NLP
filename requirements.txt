@@ -20,6 +20,7 @@ vllm
 transformers
 accelerate
 # torch
+openai              # OpenAI-compatible client: Groq teacher + LLM judge (cot_synthesis)
 
 # Training
 # LLaMA-Factory installed separately via git clone + pip install -e
@@ -31,6 +32,7 @@ python-dotenv
 
 # Evaluation
 sympy
+math-verify         # robust LaTeX/number answer equivalence (optional --prefilter in filter_solutions)
 
 
 # --extra-index-url https://download.pytorch.org/whl/nightly/cu128
