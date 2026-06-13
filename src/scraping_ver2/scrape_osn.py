@@ -584,8 +584,8 @@ def main() -> None:
     print(f"Total file PDF baru: {stats['total_files']}")
     print(f"Output: {out_base.resolve()}")
     print("\nLangkah selanjutnya untuk cek duplikat di level soal:")
-    print(f"  python -m src.data_pipeline.extract {out_base}")
-    print("  python -m src.data_pipeline.dedup data/filtered/after_validity.jsonl data/filtered/clean.jsonl")
+    print(f"  python -m src.preprop.extract {out_base}")
+    print("  python -m src.preprop.dedup data/filtered/after_validity.jsonl data/filtered/clean.jsonl")
 
 
 if __name__ == "__main__":
