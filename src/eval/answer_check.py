@@ -72,17 +72,28 @@ def extract_boxed(text: str) -> str | None:
 
 _TEXT_WRAP = re.compile(r"\\(?:text|mathrm|mbox|operatorname)\s*\{([^{}]*)\}")
 _LEFT_RIGHT = re.compile(r"\\(?:left|right|,|;|!|quad|qquad)")
+_ASSIGN = re.compile(r"^[A-Za-z]\s*=\s*")  # buang prefix "c=" / "x ="
+
+
+def strip_latex_delims(s: str) -> str:
+    """Buang delimiter math (\\( \\) \\[ \\] $$ $) dan samakan \\dfrac/\\tfrac -> \\frac."""
+    s = str(s).strip()
+    s = re.sub(r"\\[()\[\]]", "", s)          # \( \) \[ \]
+    s = s.replace("$$", "").replace("$", "")
+    s = s.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
+    return s.strip()
 
 
 def normalize_str(s: str) -> str:
     """Normalisasi ringan supaya exact-match lebih toleran."""
     if s is None:
         return ""
-    s = str(s).strip()
+    s = strip_latex_delims(str(s))
     # buang $...$ pembungkus
     s = s.strip("$").strip()
     s = _TEXT_WRAP.sub(r"\1", s)
     s = _LEFT_RIGHT.sub("", s)
+    s = _ASSIGN.sub("", s)
     # unit/teks umum di akhir jawaban
     s = re.sub(r"\\(?:cdot|times)", "*", s)
     s = s.replace("\\%", "%").replace("\\$", "")
@@ -103,7 +114,8 @@ def _to_expr(s: str):
     """Coba parse string jadi sympy expr (LaTeX dulu, lalu plain)."""
     if not _SYMPY:
         return None
-    s = s.strip().strip("$").strip()
+    s = strip_latex_delims(s)
+    s = _ASSIGN.sub("", s).strip("$").strip()
     # pecahan a/b sebagai Fraction cepat
     if re.fullmatch(r"-?\d+/\d+", s):
         try:
@@ -180,11 +192,28 @@ def is_correct(prediction: str | None, gold: str) -> bool:
     return False
 
 
+_LAST_NUM = re.compile(r"-?\d+(?:[.,]\d+)?")
+
+
+def extract_answer(generation: str) -> str | None:
+    """Jawaban model: isi \\boxed{} kalau ada, kalau tidak fallback ke angka terakhir.
+
+    Banyak model (mis. SeaLLMs) menjawab tanpa \\boxed; tanpa fallback skor jadi
+    artefak kepatuhan-format, bukan kemampuan.
+    """
+    boxed = extract_boxed(generation)
+    if boxed is not None:
+        return boxed
+    nums = _LAST_NUM.findall(generation or "")
+    return nums[-1] if nums else None
+
+
 def grade(generation: str, gold: str) -> dict:
     """Grade satu output mentah model. Return dict ringkas untuk logging."""
-    pred = extract_boxed(generation)
+    boxed = extract_boxed(generation)
+    pred = boxed if boxed is not None else extract_answer(generation)
     return {
         "pred": pred,
-        "has_boxed": pred is not None,
+        "has_boxed": boxed is not None,      # metrik kepatuhan format (terpisah)
         "correct": is_correct(pred, gold),
     }
