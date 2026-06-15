@@ -77,11 +77,12 @@ def _api_one(client, prompt: str, model: str, temperature: float, top_p: float,
 
 
 def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
-                  top_p: float, max_tokens: int) -> list[list[str]]:
+                  top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
     from vllm import LLM, SamplingParams
 
     llm = LLM(model=model, dtype="bfloat16", gpu_memory_utilization=0.90,
-              max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True)
+              max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True,
+              tensor_parallel_size=tensor_parallel_size)
     sp = SamplingParams(n=n, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
     convos = [[{"role": "user", "content": p}] for p in prompts]
     outputs = llm.chat(convos, sp)
@@ -94,7 +95,8 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
 
 def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
                  model: str, n: int = 8, temperature: float = 0.7, top_p: float = 0.95,
-                 max_tokens: int = 4096, limit: int | None = None, sleep: float = 0.0) -> dict:
+                 max_tokens: int = 4096, limit: int | None = None, sleep: float = 0.0,
+                 tensor_parallel_size: int = 1) -> dict:
     input_path, out_path = Path(input_path), Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -117,7 +119,8 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
     written = 0
     if backend == "vllm":
         all_cands = generate_vllm([p for _, _, p in todo], model=model, n=n,
-                                  temperature=temperature, top_p=top_p, max_tokens=max_tokens)
+                                  temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                                  tensor_parallel_size=tensor_parallel_size)
         with open(out_path, "a", encoding="utf-8") as f:
             for (pid, item, _), cands in zip(todo, all_cands):
                 for ci, text in enumerate(cands):
@@ -165,13 +168,16 @@ def main() -> None:
                     help="process at most this many NEW problems this run (dev / rate-limit safety)")
     ap.add_argument("--sleep", type=float, default=0.0,
                     help="seconds to wait between api calls (throttle for Groq free tier)")
+    ap.add_argument("--tensor-parallel-size", type=int, default=1,
+                    help="vllm backend: number of GPUs to shard across (Kaggle 2xT4 -> 2)")
     args = ap.parse_args()
 
     model = args.model or (DEFAULT_API_MODEL if args.backend == "api" else DEFAULT_VLLM_MODEL)
     stats = run_generate(args.input, args.out, backend=args.backend, model=model,
                          n=args.num_candidates, temperature=args.temperature,
                          top_p=args.top_p, max_tokens=args.max_tokens,
-                         limit=args.limit, sleep=args.sleep)
+                         limit=args.limit, sleep=args.sleep,
+                         tensor_parallel_size=args.tensor_parallel_size)
     print(f"Teacher={model} backend={args.backend} | {stats}")
 
 

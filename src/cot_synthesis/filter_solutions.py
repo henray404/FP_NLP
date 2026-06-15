@@ -7,9 +7,13 @@ Filters:
    sentence with no \\boxed, so plain string/sympy matching is unreliable. The judge compares the
    teacher's boxed prediction against the gold `jawaban` and answers benar/salah.
 
-Judge backend = OpenAI-compatible, default **Groq** (set GROQ_API_KEY), model llama-3.1-8b-instant
-(small + fast + cheap). `--prefilter` runs a free string/math_verify check first to skip obvious
-matches and save judge calls; off by default per the "judge only" decision.
+Judge backend:
+- "api"  : OpenAI-compatible, default **Groq** (set GROQ_API_KEY), model llama-3.1-8b-instant.
+           Good for small/dev runs. Free-tier RPD makes it unusable for a full 25k run.
+- "vllm" : local model on a GPU (Kaggle/Colab). Use this for the full run -- no API limits.
+
+`--prefilter` runs a free string/math_verify check first to skip obvious matches and save judge
+calls; off by default per the "judge only" decision.
 
 Keeps ALL correct candidates per problem (multiple solutions per problem is fine for SFT).
 
@@ -42,8 +46,8 @@ JUDGE_PROMPT = (
 )
 
 
-def _make_judge(model: str, sleep: float = 0.0):
-    """LLM judge over an OpenAI-compatible endpoint (Groq by default)."""
+def _make_judge_api(model: str, sleep: float = 0.0):
+    """LLM judge over an OpenAI-compatible endpoint (Groq by default). One call per pair."""
     client = openai_client()
 
     def judge(soal: str, gold: str, pred: str) -> bool:
@@ -65,11 +69,37 @@ def _make_judge(model: str, sleep: float = 0.0):
     return judge
 
 
+def _make_judge_vllm(model: str, tensor_parallel_size: int = 1):
+    """Local LLM judge on a GPU (no API limits). For the full run on Kaggle/Colab."""
+    from vllm import LLM, SamplingParams
+
+    llm = LLM(model=model, dtype="bfloat16", gpu_memory_utilization=0.85, max_model_len=2048,
+              tensor_parallel_size=tensor_parallel_size)
+    sp = SamplingParams(temperature=0.0, max_tokens=5)
+
+    def judge(soal: str, gold: str, pred: str) -> bool:
+        prompt = JUDGE_PROMPT.format(soal=soal[:1500], gold=gold, pred=pred)
+        out = llm.generate([prompt], sp)[0].outputs[0].text
+        return "benar" in out.strip().lower()
+
+    return judge
+
+
+def _make_judge(backend: str, model: str, sleep: float = 0.0, tensor_parallel_size: int = 1):
+    if backend == "api":
+        return _make_judge_api(model, sleep=sleep)
+    if backend == "vllm":
+        return _make_judge_vllm(model, tensor_parallel_size=tensor_parallel_size)
+    raise ValueError(f"judge backend must be 'api' or 'vllm', got {backend!r}")
+
+
 def run_filter(input_path: str | Path, output_path: str | Path, *,
-               judge_model: str = DEFAULT_JUDGE_MODEL, prefilter: bool = False,
-               sleep: float = 0.0) -> dict:
+               judge_backend: str = "api", judge_model: str = DEFAULT_JUDGE_MODEL,
+               prefilter: bool = False, sleep: float = 0.0,
+               tensor_parallel_size: int = 1) -> dict:
     rows = read_jsonl(input_path)
-    judge = _make_judge(judge_model, sleep=sleep)
+    judge = _make_judge(judge_backend, judge_model, sleep=sleep,
+                        tensor_parallel_size=tensor_parallel_size)
 
     stats = {"total": len(rows), "no_boxed": 0, "no_gold": 0, "wrong": 0,
              "kept": 0, "by_prefilter": 0, "by_judge": 0}
@@ -111,15 +141,23 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Filter teacher candidates to correct solutions (LLM judge)")
     ap.add_argument("input", nargs="?", default="data/cot/candidates.jsonl")
     ap.add_argument("output", nargs="?", default="data/cot/correct.jsonl")
-    ap.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    ap.add_argument("--judge-backend", choices=["api", "vllm"], default="api",
+                    help="api=Groq (dev), vllm=local GPU (full run, no API limits)")
+    ap.add_argument("--judge-model", default=None,
+                    help="default: llama-3.1-8b-instant (api) / Qwen/Qwen2.5-7B-Instruct (vllm)")
     ap.add_argument("--prefilter", action="store_true",
                     help="run free string/math_verify check first to skip obvious matches (saves judge calls)")
     ap.add_argument("--sleep", type=float, default=0.0,
                     help="seconds between judge calls (throttle for Groq free tier)")
+    ap.add_argument("--tensor-parallel-size", type=int, default=1,
+                    help="vllm judge: number of GPUs to shard across (Kaggle 2xT4 -> 2)")
     args = ap.parse_args()
 
-    stats = run_filter(args.input, args.output, judge_model=args.judge_model,
-                       prefilter=args.prefilter, sleep=args.sleep)
+    model = args.judge_model or (
+        DEFAULT_JUDGE_MODEL if args.judge_backend == "api" else "Qwen/Qwen2.5-7B-Instruct")
+    stats = run_filter(args.input, args.output, judge_backend=args.judge_backend,
+                       judge_model=model, prefilter=args.prefilter, sleep=args.sleep,
+                       tensor_parallel_size=args.tensor_parallel_size)
     print(f"Filter: {stats}")
 
 
