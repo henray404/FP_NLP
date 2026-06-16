@@ -78,6 +78,11 @@ def _api_one(client, prompt: str, model: str, temperature: float, top_p: float,
 
 def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
                   top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
+    import os
+    # T4 (compute 7.5) has no FlashAttention2 -> vLLM falls back to FlashInfer, which JIT-builds
+    # a sampler kernel that fails to link libcuda on Kaggle. Force native torch sampler + FlexAttention.
+    os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
+    os.environ.setdefault("VLLM_ATTENTION_BACKEND", "FLEX_ATTENTION")
     from vllm import LLM, SamplingParams
 
     llm = LLM(model=model, dtype="float16", gpu_memory_utilization=0.90,
