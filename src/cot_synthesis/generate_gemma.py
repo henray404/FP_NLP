@@ -83,11 +83,17 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
     # argument"), so the Kaggle notebook uninstalls flashinfer -> vLLM falls back to Triton attention.
     # Also force the native torch sampler (harmless if flashinfer is already gone).
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
+    # Kaggle 2xT4 tidak punya P2P/NVLink -> NCCL all-reduce hang saat TP>1. Matikan P2P + shm
+    # transport biar NCCL pakai jalur biasa, dan matikan custom all-reduce vLLM (butuh P2P).
+    if tensor_parallel_size > 1:
+        os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+        os.environ.setdefault("NCCL_SHM_DISABLE", "1")
     from vllm import LLM, SamplingParams
 
     llm = LLM(model=model, dtype="float32", gpu_memory_utilization=0.90,
               max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True,
-              tensor_parallel_size=tensor_parallel_size)
+              tensor_parallel_size=tensor_parallel_size,
+              disable_custom_all_reduce=(tensor_parallel_size > 1))
     sp = SamplingParams(n=n, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
     convos = [[{"role": "user", "content": p}] for p in prompts]
     outputs = llm.chat(convos, sp)
