@@ -83,6 +83,9 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
     # argument"), so the Kaggle notebook uninstalls flashinfer -> vLLM falls back to Triton attention.
     # Also force the native torch sampler (harmless if flashinfer is already gone).
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
+    # T4 (sm75) shared memory cap = 64KB/block. Triton attention kernel butuh ~80KB di float32
+    # (2x fp16) -> "OutOfResources: shared memory". XFORMERS backend pakai kernel lain yg muat di T4.
+    os.environ.setdefault("VLLM_ATTENTION_BACKEND", "XFORMERS")
     # Kaggle 2xT4 tidak punya P2P/NVLink -> NCCL all-reduce hang saat TP>1. Matikan P2P + shm
     # transport biar NCCL pakai jalur biasa, dan matikan custom all-reduce vLLM (butuh P2P).
     if tensor_parallel_size > 1:
