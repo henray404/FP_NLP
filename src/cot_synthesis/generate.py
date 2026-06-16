@@ -79,10 +79,11 @@ def _api_one(client, prompt: str, model: str, temperature: float, top_p: float,
 def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
                   top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
     import os
-    # T4 (compute 7.5) has no FlashAttention2 -> vLLM falls back to FlashInfer, whose sampler kernel
-    # is JIT-built at runtime and fails to link libcuda on Kaggle. Force the native torch sampler.
-    # (FlashInfer *attention* loads fine; only the sampler JIT breaks, so leave the attn backend auto.)
+    # T4 (compute 7.5) has no FlashAttention2 -> vLLM falls back to FlashInfer, which JIT-builds both
+    # its sampler and attention kernels at runtime; the build fails to link libcuda on Kaggle.
+    # Avoid FlashInfer entirely: native torch sampler + Triton attention (Triton compiles itself, no ninja/libcuda).
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
+    os.environ.setdefault("VLLM_ATTENTION_BACKEND", "TRITON_ATTN")
     from vllm import LLM, SamplingParams
 
     llm = LLM(model=model, dtype="float16", gpu_memory_utilization=0.90,
