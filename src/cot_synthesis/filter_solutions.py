@@ -72,9 +72,8 @@ def _make_judge_api(model: str, sleep: float = 0.0):
 def _make_judge_vllm(model: str, tensor_parallel_size: int = 1):
     """Local LLM judge on a GPU (no API limits). For the full run on Kaggle/Colab."""
     import os
-    # See generate.py: avoid FlashInfer JIT (fails to link libcuda on T4/Kaggle).
+    # See generate.py: FlashInfer sampler JIT fails to link libcuda on T4/Kaggle -> use torch sampler.
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
-    os.environ.setdefault("VLLM_ATTENTION_BACKEND", "FLEX_ATTENTION")
     from vllm import LLM, SamplingParams
 
     llm = LLM(model=model, dtype="float16", gpu_memory_utilization=0.85, max_model_len=2048,
