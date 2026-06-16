@@ -79,10 +79,9 @@ def _api_one(client, prompt: str, model: str, temperature: float, top_p: float,
 def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
                   top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
     import os
-    # T4 (compute 7.5): vLLM uses FlashInfer, which JIT-builds kernels at runtime. On Kaggle the link
-    # step fails ("cannot find -lcuda") because only libcuda.so.1 exists, not libcuda.so. The notebook
-    # creates the missing libcuda.so symlink (see the "fix libcuda" cell) so the JIT can link.
-    # Sampler kernel is skipped entirely via the native torch sampler (one less thing to build).
+    # T4 (compute 7.5): FlashInfer attention compiles but fails at runtime (BatchPrefill "invalid
+    # argument"), so the Kaggle notebook uninstalls flashinfer -> vLLM falls back to Triton attention.
+    # Also force the native torch sampler (harmless if flashinfer is already gone).
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     from vllm import LLM, SamplingParams
 

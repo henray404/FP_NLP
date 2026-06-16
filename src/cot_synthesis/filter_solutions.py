@@ -72,7 +72,7 @@ def _make_judge_api(model: str, sleep: float = 0.0):
 def _make_judge_vllm(model: str, tensor_parallel_size: int = 1):
     """Local LLM judge on a GPU (no API limits). For the full run on Kaggle/Colab."""
     import os
-    # See generate.py: needs the libcuda.so symlink (notebook "fix libcuda" cell) for FlashInfer JIT.
+    # See generate.py: notebook uninstalls flashinfer on T4 -> Triton attention + torch sampler.
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     from vllm import LLM, SamplingParams
 
