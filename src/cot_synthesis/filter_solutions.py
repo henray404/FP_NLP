@@ -73,7 +73,7 @@ def _make_judge_vllm(model: str, tensor_parallel_size: int = 1):
     """Local LLM judge on a GPU (no API limits). For the full run on Kaggle/Colab."""
     from vllm import LLM, SamplingParams
 
-    llm = LLM(model=model, dtype="bfloat16", gpu_memory_utilization=0.85, max_model_len=2048,
+    llm = LLM(model=model, dtype="float16", gpu_memory_utilization=0.85, max_model_len=2048,
               tensor_parallel_size=tensor_parallel_size)
     sp = SamplingParams(temperature=0.0, max_tokens=5)
 
