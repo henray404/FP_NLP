@@ -5,7 +5,7 @@ Run: python -m pytest src/cot_synthesis/test_checkpoint.py -q
 import json
 
 from src.cot_synthesis import filter_solutions as fs
-from src.cot_synthesis.generate import _already_done
+from src.cot_synthesis.generate import _already_done, _in_shard
 
 
 def _write_jsonl(path, rows):
@@ -26,6 +26,18 @@ def test_already_done_counts_candidates_per_id(tmp_path):
     done = _already_done(out)
     assert done == {"q1": 2, "q2": 1}
     assert _already_done(tmp_path / "missing.jsonl") == {}
+
+
+def test_shards_are_disjoint_and_cover_everything():
+    n_items, num_shards = 23, 3
+    owned = [set(i for i in range(n_items) if _in_shard(i, s, num_shards))
+             for s in range(num_shards)]
+    union = set().union(*owned)
+    assert union == set(range(n_items))            # every item owned by someone
+    for a in range(num_shards):                     # no item owned twice
+        for b in range(a + 1, num_shards):
+            assert owned[a].isdisjoint(owned[b])
+    assert all(_in_shard(i, 0, 1) for i in range(n_items))  # single worker owns all
 
 
 # -------------------------------
