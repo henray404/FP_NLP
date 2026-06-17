@@ -93,9 +93,9 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
         os.environ.setdefault("NCCL_SHM_DISABLE", "1")
     from vllm import LLM, SamplingParams
 
-    llm = LLM(model=model, dtype="float32", gpu_memory_utilization=0.90,
+    llm = LLM(model=model, dtype="float16", gpu_memory_utilization=0.85,
               max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True,
-              tensor_parallel_size=tensor_parallel_size,
+              tensor_parallel_size=tensor_parallel_size, enforce_eager=True,
               disable_custom_all_reduce=(tensor_parallel_size > 1))
     sp = SamplingParams(n=n, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
     convos = [[{"role": "user", "content": p}] for p in prompts]
