@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -76,22 +77,36 @@ def _api_one(client, prompt: str, model: str, temperature: float, top_p: float,
     return text
 
 
-def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
-                  top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
+def _build_vllm(model: str, max_tokens: int, tensor_parallel_size: int = 1):
+    """Build the vLLM engine ONCE (model load is the expensive part). Reused across batches."""
     import os
     # T4 (compute 7.5): FlashInfer attention compiles but fails at runtime (BatchPrefill "invalid
     # argument"), so the Kaggle notebook uninstalls flashinfer -> vLLM falls back to Triton attention.
     # Also force the native torch sampler (harmless if flashinfer is already gone).
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
-    from vllm import LLM, SamplingParams
+    from vllm import LLM
 
-    llm = LLM(model=model, dtype="float16", gpu_memory_utilization=0.90,
-              max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True,
-              tensor_parallel_size=tensor_parallel_size)
+    return LLM(model=model, dtype="float16", gpu_memory_utilization=0.90,
+               max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True,
+               tensor_parallel_size=tensor_parallel_size)
+
+
+def _vllm_chat(llm, prompts: list[str], n: int, temperature: float, top_p: float,
+               max_tokens: int) -> list[list[str]]:
+    from vllm import SamplingParams
+
     sp = SamplingParams(n=n, temperature=temperature, top_p=top_p, max_tokens=max_tokens)
     convos = [[{"role": "user", "content": p}] for p in prompts]
     outputs = llm.chat(convos, sp)
     return [[o.text for o in out.outputs] for out in outputs]
+
+
+def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
+                  top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
+    """One-shot helper (builds engine + generates all prompts). For batched/resumable runs
+    use run_generate, which builds the engine once and checkpoints per batch."""
+    llm = _build_vllm(model, max_tokens, tensor_parallel_size)
+    return _vllm_chat(llm, prompts, n, temperature, top_p, max_tokens)
 
 
 # -------------------------------
@@ -101,7 +116,7 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
 def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
                  model: str, n: int = 8, temperature: float = 0.7, top_p: float = 0.95,
                  max_tokens: int = 4096, limit: int | None = None, sleep: float = 0.0,
-                 tensor_parallel_size: int = 1) -> dict:
+                 tensor_parallel_size: int = 1, batch_size: int = 64) -> dict:
     input_path, out_path = Path(input_path), Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -118,19 +133,29 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
         if limit is not None and len(todo) >= limit:
             break
 
+    skipped = len(items) - len(todo)
     if not todo:
-        return {"problems": len(items), "generated": 0, "skipped": len(items)}
+        return {"problems": len(items), "generated": 0, "skipped": skipped, "resumed": True}
 
     written = 0
     if backend == "vllm":
-        all_cands = generate_vllm([p for _, _, p in todo], model=model, n=n,
-                                  temperature=temperature, top_p=top_p, max_tokens=max_tokens,
-                                  tensor_parallel_size=tensor_parallel_size)
+        # Build the engine ONCE, then generate batch_size problems at a time and flush after
+        # each batch. A flushed batch is a checkpoint: if the Kaggle session dies, rerunning
+        # skips finished problems (via _already_done) and resumes from the next batch.
+        llm = _build_vllm(model, max_tokens, tensor_parallel_size)
         with open(out_path, "a", encoding="utf-8") as f:
-            for (pid, item, _), cands in zip(todo, all_cands):
-                for ci, text in enumerate(cands):
-                    f.write(json.dumps(_row(pid, item, ci, text), ensure_ascii=False) + "\n")
-                    written += 1
+            for start in range(0, len(todo), batch_size):
+                chunk = todo[start:start + batch_size]
+                cands = _vllm_chat(llm, [p for _, _, p in chunk], n=n, temperature=temperature,
+                                   top_p=top_p, max_tokens=max_tokens)
+                for (pid, item, _), cs in zip(chunk, cands):
+                    for ci, text in enumerate(cs):
+                        f.write(json.dumps(_row(pid, item, ci, text), ensure_ascii=False) + "\n")
+                        written += 1
+                f.flush()
+                os.fsync(f.fileno())
+                print(f"  checkpoint: {min(start + batch_size, len(todo))}/{len(todo)} problems "
+                      f"done ({written} candidates written)", flush=True)
     else:  # api: stream one candidate at a time, append immediately (resumable)
         client = openai_client()
         with open(out_path, "a", encoding="utf-8") as f:
@@ -144,7 +169,8 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
                     if sleep:
                         time.sleep(sleep)
 
-    return {"problems": len(items), "generated": written, "todo_problems": len(todo)}
+    return {"problems": len(items), "generated": written, "todo_problems": len(todo),
+            "skipped": skipped}
 
 
 def _row(pid: str, item: dict, ci: int, text: str) -> dict:
@@ -175,6 +201,8 @@ def main() -> None:
                     help="seconds to wait between api calls (throttle for Groq free tier)")
     ap.add_argument("--tensor-parallel-size", type=int, default=1,
                     help="vllm backend: number of GPUs to shard across (Kaggle 2xT4 -> 2)")
+    ap.add_argument("--batch-size", type=int, default=64,
+                    help="vllm backend: problems per checkpoint (flush after each batch -> resumable)")
     args = ap.parse_args()
 
     model = args.model or (DEFAULT_API_MODEL if args.backend == "api" else DEFAULT_VLLM_MODEL)
@@ -182,7 +210,8 @@ def main() -> None:
                          n=args.num_candidates, temperature=args.temperature,
                          top_p=args.top_p, max_tokens=args.max_tokens,
                          limit=args.limit, sleep=args.sleep,
-                         tensor_parallel_size=args.tensor_parallel_size)
+                         tensor_parallel_size=args.tensor_parallel_size,
+                         batch_size=args.batch_size)
     print(f"Teacher={model} backend={args.backend} | {stats}")
 
 

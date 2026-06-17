@@ -1,0 +1,12 @@
+# CoT arm, 1.5B student. Pair with nocot_1.5b.yaml (identical hyperparams, only dataset differs).
+base_model: Qwen/Qwen2.5-1.5B
+dataset: data/sft/cot.jsonl
+output_dir: outputs/cot_1.5b
+mode: cot
+max_seq_length: 4096
+epochs: 2.0
+batch_size: 2
+grad_accum: 8
+learning_rate: 2.0e-4
+val_ratio: 0.05
+train_on_responses_only: true
