@@ -28,11 +28,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import time
 from pathlib import Path
 
 from .utils import (answers_equivalent, extract_boxed, openai_client, read_jsonl,
-                    with_retry, write_jsonl)
+                    with_retry)
 
 DEFAULT_JUDGE_MODEL = "llama-3.1-8b-instant"  # Groq
 
@@ -46,32 +48,37 @@ JUDGE_PROMPT = (
 )
 
 
+# Each judge is a BATCH callable: list[(soal, gold, pred)] -> list[bool]. Batching lets the
+# vllm judge process a whole checkpoint chunk in one call (fast); the api judge loops internally.
+
 def _make_judge_api(model: str, sleep: float = 0.0):
     """LLM judge over an OpenAI-compatible endpoint (Groq by default). One call per pair."""
     client = openai_client()
 
-    def judge(soal: str, gold: str, pred: str) -> bool:
-        prompt = JUDGE_PROMPT.format(soal=soal[:1500], gold=gold, pred=pred)
+    def judge_batch(triples: list[tuple[str, str, str]]) -> list[bool]:
+        out = []
+        for soal, gold, pred in triples:
+            prompt = JUDGE_PROMPT.format(soal=soal[:1500], gold=gold, pred=pred)
 
-        def call():
-            return client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=5,
-            )
+            def call():
+                return client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=5,
+                )
 
-        resp = with_retry(call)
-        if sleep:
-            time.sleep(sleep)
-        return "benar" in (resp.choices[0].message.content or "").strip().lower()
+            resp = with_retry(call)
+            out.append("benar" in (resp.choices[0].message.content or "").strip().lower())
+            if sleep:
+                time.sleep(sleep)
+        return out
 
-    return judge
+    return judge_batch
 
 
 def _make_judge_vllm(model: str, tensor_parallel_size: int = 1):
     """Local LLM judge on a GPU (no API limits). For the full run on Kaggle/Colab."""
-    import os
     # See generate.py: notebook uninstalls flashinfer on T4 -> Triton attention + torch sampler.
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     from vllm import LLM, SamplingParams
@@ -80,12 +87,14 @@ def _make_judge_vllm(model: str, tensor_parallel_size: int = 1):
               tensor_parallel_size=tensor_parallel_size)
     sp = SamplingParams(temperature=0.0, max_tokens=5)
 
-    def judge(soal: str, gold: str, pred: str) -> bool:
-        prompt = JUDGE_PROMPT.format(soal=soal[:1500], gold=gold, pred=pred)
-        out = llm.generate([prompt], sp)[0].outputs[0].text
-        return "benar" in out.strip().lower()
+    def judge_batch(triples: list[tuple[str, str, str]]) -> list[bool]:
+        if not triples:
+            return []
+        prompts = [JUDGE_PROMPT.format(soal=s[:1500], gold=g, pred=p) for s, g, p in triples]
+        outs = llm.generate(prompts, sp)
+        return ["benar" in o.outputs[0].text.strip().lower() for o in outs]
 
-    return judge
+    return judge_batch
 
 
 def _make_judge(backend: str, model: str, sleep: float = 0.0, tensor_parallel_size: int = 1):
@@ -96,47 +105,120 @@ def _make_judge(backend: str, model: str, sleep: float = 0.0, tensor_parallel_si
     raise ValueError(f"judge backend must be 'api' or 'vllm', got {backend!r}")
 
 
+# -------------------------------
+# Checkpoint / resume
+# -------------------------------
+
+def _cand_key(row: dict) -> str:
+    """Stable per-candidate key: a candidate is one (problem id, candidate_idx) pair."""
+    return f"{row.get('id', '')}\t{row.get('candidate_idx', 0)}"
+
+
+def _processed_keys(output_path: Path, progress_path: Path) -> set[str]:
+    """Keys already examined in a previous run = (kept rows in output) U (progress log).
+    The progress log records EVERY judged candidate (kept or dropped) so a resume never
+    re-judges the same candidate twice."""
+    done: set[str] = set()
+    if output_path.exists():
+        for r in read_jsonl(output_path):
+            done.add(_cand_key(r))
+    if progress_path.exists():
+        with open(progress_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if line:
+                    done.add(line)
+    return done
+
+
 def run_filter(input_path: str | Path, output_path: str | Path, *,
                judge_backend: str = "api", judge_model: str = DEFAULT_JUDGE_MODEL,
                prefilter: bool = False, sleep: float = 0.0,
-               tensor_parallel_size: int = 1) -> dict:
+               tensor_parallel_size: int = 1, batch_size: int = 64,
+               resume: bool = True) -> dict:
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path = output_path.with_suffix(output_path.suffix + ".progress")
+
+    if not resume:  # start clean: drop any previous output + checkpoint
+        for p in (output_path, progress_path):
+            if p.exists():
+                p.unlink()
+
     rows = read_jsonl(input_path)
-    judge = _make_judge(judge_backend, judge_model, sleep=sleep,
-                        tensor_parallel_size=tensor_parallel_size)
+    done = _processed_keys(output_path, progress_path) if resume else set()
 
-    stats = {"total": len(rows), "no_boxed": 0, "no_gold": 0, "wrong": 0,
-             "kept": 0, "by_prefilter": 0, "by_judge": 0}
-    kept = []
-    for r in rows:
-        text = r.get("text", "")
-        pred = extract_boxed(text)
-        if pred is None:
-            stats["no_boxed"] += 1
-            continue
-        gold = str(r.get("jawaban", "")).strip()
-        if not gold:
-            stats["no_gold"] += 1
-            continue
+    stats = {"total": len(rows), "resumed": len(done), "no_boxed": 0, "no_gold": 0,
+             "wrong": 0, "kept": 0, "by_prefilter": 0, "by_judge": 0, "skipped_done": 0}
 
-        ok = False
-        if prefilter and answers_equivalent(pred, gold):
-            ok = True
-            stats["by_prefilter"] += 1
-        else:
-            ok = judge(r.get("soal", ""), gold, pred)
-            if ok:
-                stats["by_judge"] += 1
+    # Pass 1 (cheap, no LLM): completeness + gold + optional prefilter. Anything that still
+    # needs the LLM judge is queued; everything else is decided + checkpointed immediately.
+    judge = None  # build lazily so a fully-resumed run never loads the GPU judge
+    out_f = open(output_path, "a", encoding="utf-8")
+    prog_f = open(progress_path, "a", encoding="utf-8")
 
-        if not ok:
-            stats["wrong"] += 1
-            continue
-        kept.append({
-            "id": r["id"], "soal": r.get("soal", ""), "jawaban": gold,
-            "candidate_idx": r.get("candidate_idx", 0), "text": text, "pred": pred,
-        })
+    def _emit(row: dict, pred: str, gold: str) -> None:
+        out_f.write(json.dumps({
+            "id": row["id"], "soal": row.get("soal", ""), "jawaban": gold,
+            "candidate_idx": row.get("candidate_idx", 0), "text": row.get("text", ""),
+            "pred": pred,
+        }, ensure_ascii=False) + "\n")
 
-    stats["kept"] = write_jsonl(kept, output_path)
-    stats["problems_covered"] = len({k["id"] for k in kept})
+    def _checkpoint(keys: list[str]) -> None:
+        for k in keys:
+            prog_f.write(k + "\n")
+        out_f.flush(); prog_f.flush()
+        os.fsync(out_f.fileno()); os.fsync(prog_f.fileno())
+
+    try:
+        pending: list[tuple[dict, str, str]] = []  # (row, pred, gold) awaiting judge
+        for r in rows:
+            key = _cand_key(r)
+            if key in done:
+                stats["skipped_done"] += 1
+                continue
+            text = r.get("text", "")
+            pred = extract_boxed(text)
+            if pred is None:
+                stats["no_boxed"] += 1
+                _checkpoint([key])
+                continue
+            gold = str(r.get("jawaban", "")).strip()
+            if not gold:
+                stats["no_gold"] += 1
+                _checkpoint([key])
+                continue
+            if prefilter and answers_equivalent(pred, gold):
+                stats["by_prefilter"] += 1
+                stats["kept"] += 1
+                _emit(r, pred, gold)
+                _checkpoint([key])
+                continue
+            pending.append((r, pred, gold))
+
+        # Pass 2: judge the queue in batches, flushing output + progress after each batch.
+        if pending:
+            judge = _make_judge(judge_backend, judge_model, sleep=sleep,
+                                tensor_parallel_size=tensor_parallel_size)
+            for start in range(0, len(pending), batch_size):
+                chunk = pending[start:start + batch_size]
+                verdicts = judge([(r.get("soal", ""), gold, pred) for r, pred, gold in chunk])
+                batch_keys = []
+                for (r, pred, gold), ok in zip(chunk, verdicts):
+                    if ok:
+                        stats["by_judge"] += 1
+                        stats["kept"] += 1
+                        _emit(r, pred, gold)
+                    else:
+                        stats["wrong"] += 1
+                    batch_keys.append(_cand_key(r))
+                _checkpoint(batch_keys)
+                print(f"  checkpoint: judged {min(start + batch_size, len(pending))}/{len(pending)} "
+                      f"(kept so far {stats['kept']})", flush=True)
+    finally:
+        out_f.close(); prog_f.close()
+
+    stats["problems_covered"] = len({r["id"] for r in read_jsonl(output_path)}) if output_path.exists() else 0
     return stats
 
 
@@ -154,13 +236,18 @@ def main() -> None:
                     help="seconds between judge calls (throttle for Groq free tier)")
     ap.add_argument("--tensor-parallel-size", type=int, default=1,
                     help="vllm judge: number of GPUs to shard across (Kaggle 2xT4 -> 2)")
+    ap.add_argument("--batch-size", type=int, default=64,
+                    help="candidates per checkpoint (flush output+progress after each batch -> resumable)")
+    ap.add_argument("--no-resume", action="store_true",
+                    help="ignore existing output/.progress and re-judge everything from scratch")
     args = ap.parse_args()
 
     model = args.judge_model or (
         DEFAULT_JUDGE_MODEL if args.judge_backend == "api" else "Qwen/Qwen2.5-7B-Instruct")
     stats = run_filter(args.input, args.output, judge_backend=args.judge_backend,
                        judge_model=model, prefilter=args.prefilter, sleep=args.sleep,
-                       tensor_parallel_size=args.tensor_parallel_size)
+                       tensor_parallel_size=args.tensor_parallel_size,
+                       batch_size=args.batch_size, resume=not args.no_resume)
     print(f"Filter: {stats}")
 
 
