@@ -79,6 +79,11 @@ def _api_one(client, prompt: str, model: str, temperature: float, top_p: float,
 def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
                   top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
     import os
+    # Gemma-2 pakai sliding-window attention (interleaved local/global). vLLM V1 batch-queue
+    # scheduler crash di kombinasi ini (T4/XFORMERS): request selesai tapi scheduler cari req_id
+    # yg sudah hilang -> "KeyError: '..._...-<hash>'" di update_from_output, EngineCore mati.
+    # Paksa V0 engine: stabil buat Gemma-2 di T4, lewati jalur scheduler V1.
+    os.environ.setdefault("VLLM_USE_V1", "0")
     # T4 (compute 7.5): FlashInfer attention compiles but fails at runtime (BatchPrefill "invalid
     # argument"), so the Kaggle notebook uninstalls flashinfer -> vLLM falls back to Triton attention.
     # Also force the native torch sampler (harmless if flashinfer is already gone).
