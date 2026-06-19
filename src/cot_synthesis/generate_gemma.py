@@ -109,7 +109,7 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
 
 
 def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
-                top_p: float, max_tokens: int):
+                top_p: float, max_tokens: int, batch_size: int = 4):
     """Plain HuggingFace transformers generation. Robust fallback for Gemma-2 on T4.
 
     vLLM di T4 (sm75) bermasalah buat Gemma-2: head_dim=256 bikin kernel Triton attention
@@ -117,8 +117,10 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
     vLLM versi baru (V0 sudah dihapus). transformers pakai eager/SDPA attention -> tidak ada
     limit shared-mem Triton, jalan stabil. Gemma-2-2b cuma 2B param, muat santai di 1x T4.
 
-    Generator: yield (index, [n teks]) per prompt -> caller bisa tulis incremental (resumable,
-    tahan timeout Kaggle) tanpa nunggu semua selesai.
+    Batched: proses `batch_size` soal sekaligus per generate call (paralel di GPU -> lebih cepat).
+    Tiap call jalanin batch_size*n sekuens bareng. Left-padding wajib buat batched decode (decoder-
+    only) biar slice prompt rata. Generator: yield (index, [n teks]) per soal -> caller tulis
+    incremental (resumable). Kalau OOM, turunin batch_size.
     """
     import sys
     import time
@@ -127,6 +129,9 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model)
+    tok.padding_side = "left"                     # decoder-only batched gen -> left pad
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
     # Gemma-2 disarankan eager attention (sliding-window interleaved) biar numerik benar.
     # device_map=cuda:0 -> taruh seluruh model di 1 GPU (2B muat di 1x T4). Jangan "auto":
     # auto nyebar 2B ke 2 GPU -> ada overhead transfer antar-GPU, malah lebih lambat.
@@ -136,27 +141,31 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
 
     total = len(prompts)
     print(f"[hf-gen] mulai: {total} soal x n={n} x max_new_tokens={max_tokens} "
-          f"(eager T4, lambat — sabar)", flush=True)
-    for i, p in enumerate(prompts):
+          f"| batch={batch_size} soal/call (eager T4)", flush=True)
+    for start in range(0, total, batch_size):
+        chunk = prompts[start:start + batch_size]
         t0 = time.time()
-        msgs = [{"role": "user", "content": p}]
-        # return_dict=True -> BatchEncoding (input_ids + attention_mask); generate(**enc).
-        # Tanpa ini transformers baru bisa balikin dict mentah -> generate(inputs) error
-        # "inputs_tensor.shape" (AttributeError/KeyError 'shape').
+        convos = [[{"role": "user", "content": p}] for p in chunk]
+        # padding=True -> samain panjang batch (left). return_dict -> input_ids + attention_mask.
         enc = tok.apply_chat_template(
-            msgs, add_generation_prompt=True, return_tensors="pt",
-            return_dict=True).to(m.device)
+            convos, add_generation_prompt=True, return_tensors="pt",
+            return_dict=True, padding=True).to(m.device)
         with torch.no_grad():
             out = m.generate(
                 **enc, do_sample=True, temperature=temperature, top_p=top_p,
                 max_new_tokens=max_tokens, num_return_sequences=n,
-                pad_token_id=tok.eos_token_id)
-        gen = out[:, enc["input_ids"].shape[1]:]             # buang prompt
+                pad_token_id=tok.pad_token_id)
+        in_len = enc["input_ids"].shape[1]
+        gen = out[:, in_len:]                                  # buang prompt (left-pad -> rata)
+        texts = tok.batch_decode(gen, skip_special_tokens=True)
+        # out urut: [soal0_s0..soal0_s(n-1), soal1_s0, ...] -> regroup per soal.
+        dt = time.time() - t0
         new_tok = int(gen.shape[0] * gen.shape[1])
-        print(f"[hf-gen] soal {i + 1}/{total} selesai "
-              f"({new_tok} tok, {time.time() - t0:.1f}s)", flush=True)
+        print(f"[hf-gen] soal {start + 1}-{start + len(chunk)}/{total} selesai "
+              f"({new_tok} tok, {dt:.1f}s, {dt / len(chunk):.1f}s/soal)", flush=True)
         sys.stdout.flush()
-        yield i, tok.batch_decode(gen, skip_special_tokens=True)
+        for j in range(len(chunk)):
+            yield start + j, texts[j * n:(j + 1) * n]
 
 
 # -------------------------------
