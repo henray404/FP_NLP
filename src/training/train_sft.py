@@ -180,6 +180,12 @@ def build_and_train(cfg: TrainConfig) -> str:
         dtype=None, load_in_4bit=cfg.load_in_4bit)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
+    # Qwen2.5 *base* ships no chat_template (only -Instruct does); apply_chat_template would
+    # raise. Install the ChatML template so <|im_start|>/<|im_end|> framing matches our
+    # response-only masking templates. No-op when the model already carries one (-Instruct).
+    if tok.chat_template is None:
+        from unsloth.chat_templates import get_chat_template
+        tok = get_chat_template(tok, chat_template="qwen-2.5")
 
     # Attach LoRA adapters through Unsloth (replaces peft.LoraConfig + get_peft_model).
     model = FastLanguageModel.get_peft_model(
