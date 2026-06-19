@@ -126,19 +126,23 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
     tok = AutoTokenizer.from_pretrained(model)
     # Gemma-2 disarankan eager attention (sliding-window interleaved) biar numerik benar.
     m = AutoModelForCausalLM.from_pretrained(
-        model, torch_dtype=torch.bfloat16, device_map="auto", attn_implementation="eager")
+        model, dtype=torch.bfloat16, device_map="auto", attn_implementation="eager")
     m.eval()
 
     for i, p in enumerate(prompts):
         msgs = [{"role": "user", "content": p}]
-        inputs = tok.apply_chat_template(
-            msgs, add_generation_prompt=True, return_tensors="pt").to(m.device)
+        # return_dict=True -> BatchEncoding (input_ids + attention_mask); generate(**enc).
+        # Tanpa ini transformers baru bisa balikin dict mentah -> generate(inputs) error
+        # "inputs_tensor.shape" (AttributeError/KeyError 'shape').
+        enc = tok.apply_chat_template(
+            msgs, add_generation_prompt=True, return_tensors="pt",
+            return_dict=True).to(m.device)
         with torch.no_grad():
             out = m.generate(
-                inputs, do_sample=True, temperature=temperature, top_p=top_p,
+                **enc, do_sample=True, temperature=temperature, top_p=top_p,
                 max_new_tokens=max_tokens, num_return_sequences=n,
                 pad_token_id=tok.eos_token_id)
-        gen = out[:, inputs.shape[1]:]                       # buang prompt
+        gen = out[:, enc["input_ids"].shape[1]:]             # buang prompt
         yield i, tok.batch_decode(gen, skip_special_tokens=True)
 
 
