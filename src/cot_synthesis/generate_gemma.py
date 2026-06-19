@@ -120,16 +120,25 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
     Generator: yield (index, [n teks]) per prompt -> caller bisa tulis incremental (resumable,
     tahan timeout Kaggle) tanpa nunggu semua selesai.
     """
+    import sys
+    import time
+
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model)
     # Gemma-2 disarankan eager attention (sliding-window interleaved) biar numerik benar.
+    # device_map=cuda:0 -> taruh seluruh model di 1 GPU (2B muat di 1x T4). Jangan "auto":
+    # auto nyebar 2B ke 2 GPU -> ada overhead transfer antar-GPU, malah lebih lambat.
     m = AutoModelForCausalLM.from_pretrained(
-        model, dtype=torch.bfloat16, device_map="auto", attn_implementation="eager")
+        model, dtype=torch.bfloat16, device_map={"": 0}, attn_implementation="eager")
     m.eval()
 
+    total = len(prompts)
+    print(f"[hf-gen] mulai: {total} soal x n={n} x max_new_tokens={max_tokens} "
+          f"(eager T4, lambat — sabar)", flush=True)
     for i, p in enumerate(prompts):
+        t0 = time.time()
         msgs = [{"role": "user", "content": p}]
         # return_dict=True -> BatchEncoding (input_ids + attention_mask); generate(**enc).
         # Tanpa ini transformers baru bisa balikin dict mentah -> generate(inputs) error
@@ -143,6 +152,10 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
                 max_new_tokens=max_tokens, num_return_sequences=n,
                 pad_token_id=tok.eos_token_id)
         gen = out[:, enc["input_ids"].shape[1]:]             # buang prompt
+        new_tok = int(gen.shape[0] * gen.shape[1])
+        print(f"[hf-gen] soal {i + 1}/{total} selesai "
+              f"({new_tok} tok, {time.time() - t0:.1f}s)", flush=True)
+        sys.stdout.flush()
         yield i, tok.batch_decode(gen, skip_special_tokens=True)
 
 
