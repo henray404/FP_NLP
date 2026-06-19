@@ -108,6 +108,40 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
     return [[o.text for o in out.outputs] for out in outputs]
 
 
+def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
+                top_p: float, max_tokens: int):
+    """Plain HuggingFace transformers generation. Robust fallback for Gemma-2 on T4.
+
+    vLLM di T4 (sm75) bermasalah buat Gemma-2: head_dim=256 bikin kernel Triton attention
+    minta shared memory > 64KB -> "OutOfResources", dan env-workaround V0/XFORMERS diabaikan
+    vLLM versi baru (V0 sudah dihapus). transformers pakai eager/SDPA attention -> tidak ada
+    limit shared-mem Triton, jalan stabil. Gemma-2-2b cuma 2B param, muat santai di 1x T4.
+
+    Generator: yield (index, [n teks]) per prompt -> caller bisa tulis incremental (resumable,
+    tahan timeout Kaggle) tanpa nunggu semua selesai.
+    """
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(model)
+    # Gemma-2 disarankan eager attention (sliding-window interleaved) biar numerik benar.
+    m = AutoModelForCausalLM.from_pretrained(
+        model, torch_dtype=torch.bfloat16, device_map="auto", attn_implementation="eager")
+    m.eval()
+
+    for i, p in enumerate(prompts):
+        msgs = [{"role": "user", "content": p}]
+        inputs = tok.apply_chat_template(
+            msgs, add_generation_prompt=True, return_tensors="pt").to(m.device)
+        with torch.no_grad():
+            out = m.generate(
+                inputs, do_sample=True, temperature=temperature, top_p=top_p,
+                max_new_tokens=max_tokens, num_return_sequences=n,
+                pad_token_id=tok.eos_token_id)
+        gen = out[:, inputs.shape[1]:]                       # buang prompt
+        yield i, tok.batch_decode(gen, skip_special_tokens=True)
+
+
 # -------------------------------
 # Driver
 # -------------------------------
@@ -145,6 +179,15 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
                 for ci, text in enumerate(cands):
                     f.write(json.dumps(_row(pid, item, ci, text), ensure_ascii=False) + "\n")
                     written += 1
+    elif backend == "hf":  # transformers: tulis incremental per soal (resumable, tahan timeout)
+        with open(out_path, "a", encoding="utf-8") as f:
+            for i, cands in generate_hf([p for _, _, p in todo], model=model, n=n,
+                                        temperature=temperature, top_p=top_p, max_tokens=max_tokens):
+                pid, item, _ = todo[i]
+                for ci, text in enumerate(cands):
+                    f.write(json.dumps(_row(pid, item, ci, text), ensure_ascii=False) + "\n")
+                    written += 1
+                f.flush()
     else:  # api: stream one candidate at a time, append immediately (resumable)
         client = openai_client()
         with open(out_path, "a", encoding="utf-8") as f:
@@ -177,7 +220,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Generate teacher CoT candidates")
     ap.add_argument("input", help="JSONL with soal (+ jawaban, cara)")
     ap.add_argument("--out", default="data/cot/candidates.jsonl")
-    ap.add_argument("--backend", choices=["api", "vllm"], default="api")
+    ap.add_argument("--backend", choices=["api", "vllm", "hf"], default="api")
     ap.add_argument("--model", default=None, help="teacher model id (backend-specific default)")
     ap.add_argument("-n", "--num-candidates", type=int, default=8)
     ap.add_argument("--temperature", type=float, default=0.7)
