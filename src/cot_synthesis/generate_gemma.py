@@ -118,7 +118,7 @@ def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
 
 
 def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
-                top_p: float, max_tokens: int, batch_size: int = 4):
+                top_p: float, max_tokens: int, batch_size: int = 1):
     """Plain HuggingFace transformers generation. Robust fallback for Gemma-2 on T4.
 
     vLLM di T4 (sm75) bermasalah buat Gemma-2: head_dim=256 bikin kernel Triton attention
@@ -126,10 +126,12 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
     vLLM versi baru (V0 sudah dihapus). transformers pakai eager/SDPA attention -> tidak ada
     limit shared-mem Triton, jalan stabil. Gemma-2-2b cuma 2B param, muat santai di 1x T4.
 
-    Batched: proses `batch_size` soal sekaligus per generate call (paralel di GPU -> lebih cepat).
-    Tiap call jalanin batch_size*n sekuens bareng. Left-padding wajib buat batched decode (decoder-
-    only) biar slice prompt rata. Generator: yield (index, [n teks]) per soal -> caller tulis
-    incremental (resumable). Kalau OOM, turunin batch_size.
+    batch_size=1 (default) PALING BAIK di T4: log + flush per soal (first feedback cepat), dan T4
+    compute-bound jadi batching gak nambah throughput nyata. batch_size>1 jalanin batch_size*n
+    sekuens bareng TAPI batch baru selesai di sekuens TERPANJANG (semua bayar max_new_tokens) +
+    padding/memory overhead -> di T4 malah lebih lambat & telat log. Left-padding wajib buat batched
+    decode (decoder-only) biar slice prompt rata. Generator: yield (index, [n teks]) per soal ->
+    caller tulis incremental (resumable).
     """
     import sys
     import time
@@ -184,7 +186,8 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
 def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
                  model: str, n: int = 8, temperature: float = 0.7, top_p: float = 0.95,
                  max_tokens: int = 4096, limit: int | None = None, sleep: float = 0.0,
-                 tensor_parallel_size: int = 1, shard: int = 0, num_shards: int = 1) -> dict:
+                 tensor_parallel_size: int = 1, batch_size: int = 1,
+                 shard: int = 0, num_shards: int = 1) -> dict:
     if not 0 <= shard < max(num_shards, 1):
         raise ValueError(f"shard must be in [0, {num_shards}), got {shard}")
     input_path, out_path = Path(input_path), Path(out_path)
@@ -221,7 +224,8 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
     elif backend == "hf":  # transformers: tulis incremental per soal (resumable, tahan timeout)
         with open(out_path, "a", encoding="utf-8") as f:
             for i, cands in generate_hf([p for _, _, p in todo], model=model, n=n,
-                                        temperature=temperature, top_p=top_p, max_tokens=max_tokens):
+                                        temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                                        batch_size=batch_size):
                 pid, item, _ = todo[i]
                 for ci, text in enumerate(cands):
                     f.write(json.dumps(_row(pid, item, ci, text), ensure_ascii=False) + "\n")
