@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .env
 *.egg-info/
+.DS_Store
 
 # Data (besar -> disimpan di Google Drive, jangan push)
 # Keep folder data/ tapi abaikan semua isinya kecuali README placeholder.

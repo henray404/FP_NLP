@@ -135,7 +135,9 @@ def run_filter(input_path: str | Path, output_path: str | Path, *,
                judge_backend: str = "api", judge_model: str = DEFAULT_JUDGE_MODEL,
                prefilter: bool = False, sleep: float = 0.0,
                tensor_parallel_size: int = 1, batch_size: int = 64,
-               resume: bool = True) -> dict:
+               resume: bool = True, emit_chatml: bool = False,
+               chatml_dir: str | Path = "data/sft", best_per_problem: bool = True,
+               id_only: bool = True) -> dict:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     progress_path = output_path.with_suffix(output_path.suffix + ".progress")
@@ -219,6 +221,15 @@ def run_filter(input_path: str | Path, output_path: str | Path, *,
         out_f.close(); prog_f.close()
 
     stats["problems_covered"] = len({r["id"] for r in read_jsonl(output_path)}) if output_path.exists() else 0
+
+    # Final stage: turn the correct solutions straight into ChatML SFT datasets so the CoT
+    # pipeline ends in training-ready cot.jsonl/nocot.jsonl (no separate to_chatml call needed).
+    if emit_chatml:
+        from .to_chatml import run as build_chatml
+        cm = build_chatml(output_path, chatml_dir, best_per_problem=best_per_problem,
+                          id_only=id_only)
+        stats["chatml"] = cm
+
     return stats
 
 
@@ -240,6 +251,13 @@ def main() -> None:
                     help="candidates per checkpoint (flush output+progress after each batch -> resumable)")
     ap.add_argument("--no-resume", action="store_true",
                     help="ignore existing output/.progress and re-judge everything from scratch")
+    ap.add_argument("--emit-chatml", action="store_true",
+                    help="after filtering, build cot.jsonl/nocot.jsonl directly (pipeline ends in ChatML)")
+    ap.add_argument("--chatml-dir", default="data/sft", help="output dir for cot.jsonl/nocot.jsonl")
+    ap.add_argument("--keep-all-per-problem", action="store_true",
+                    help="keep every correct solution per problem (default: 1 best per problem)")
+    ap.add_argument("--keep-english", action="store_true",
+                    help="keep English-dominant CoT (default: Indonesian-only)")
     args = ap.parse_args()
 
     model = args.judge_model or (
@@ -247,7 +265,9 @@ def main() -> None:
     stats = run_filter(args.input, args.output, judge_backend=args.judge_backend,
                        judge_model=model, prefilter=args.prefilter, sleep=args.sleep,
                        tensor_parallel_size=args.tensor_parallel_size,
-                       batch_size=args.batch_size, resume=not args.no_resume)
+                       batch_size=args.batch_size, resume=not args.no_resume,
+                       emit_chatml=args.emit_chatml, chatml_dir=args.chatml_dir,
+                       best_per_problem=not args.keep_all_per_problem, id_only=not args.keep_english)
     print(f"Filter: {stats}")
 
 

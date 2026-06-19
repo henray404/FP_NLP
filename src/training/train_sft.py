@@ -5,10 +5,11 @@ Same base model + same hyperparameters; ONLY the dataset differs (data/sft/cot.j
 data/sft/nocot.jsonl) -> the accuracy gap isolates the CoT effect. Each run produces one
 LoRA adapter; pair up cot/nocot adapters per base size and eval them with src.eval.
 
-Stack matches the rest of the repo (notebooks/skenario3_train_noncot_kaggle.ipynb):
-transformers + peft + bitsandbytes + trl. Training needs a GPU and is lazy-imported in
-build_and_train(); everything above it (config, data, split, formatting) is pure Python and
-unit-tested on CPU (src/training/test_train_sft.py).
+Stack: **Unsloth** (FastLanguageModel, ~2x faster + lower VRAM on T4) + trl SFTTrainer for
+the loop. Training needs a GPU and is lazy-imported in build_and_train(); everything above it
+(config, data, split, formatting) is pure Python and unit-tested on CPU
+(src/training/test_train_sft.py). Note: Unsloth uses a single GPU, so on Kaggle 2xT4 only one
+T4 is used (still faster than the 2-GPU transformers path for a 1.5B QLoRA run).
 
 Usage:
     python -m src.training.train_sft --config src/training/configs/cot_1.5b.yaml
@@ -154,14 +155,17 @@ def to_training_text(row: dict, tokenizer) -> str:
 
 def build_and_train(cfg: TrainConfig) -> str:
     """Run SFT for one config and save the LoRA adapter. Returns the output dir.
-    Imports torch/transformers/peft/trl lazily so the module loads on a CPU box."""
+
+    Uses **Unsloth** (FastLanguageModel) for ~2x faster training and lower VRAM on the
+    free-tier T4. `import unsloth` must come first so it can patch transformers/trl before
+    they load. The rest of the SFT loop is still trl's SFTTrainer (Unsloth-patched).
+    Everything above this function is framework-agnostic and unit-tested on CPU."""
     import gc
 
+    # Unsloth first: it monkeypatches transformers/peft/trl on import for the fast path.
+    from unsloth import FastLanguageModel, is_bfloat16_supported
     import torch
     from datasets import Dataset
-    from peft import LoraConfig
-    from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                              BitsAndBytesConfig)
     from trl import SFTConfig, SFTTrainer
 
     rows = read_chatml(cfg.dataset, max_examples=cfg.max_examples)
@@ -170,9 +174,19 @@ def build_and_train(cfg: TrainConfig) -> str:
     train_rows, val_rows = train_val_split(rows, cfg.val_ratio, cfg.seed)
     print(f"[{cfg.mode}] {cfg.base_model}: train={len(train_rows)} val={len(val_rows)}")
 
-    tok = AutoTokenizer.from_pretrained(cfg.base_model)
+    # Load 4-bit base + tokenizer via Unsloth (handles quantization + fast kernels itself).
+    model, tok = FastLanguageModel.from_pretrained(
+        model_name=cfg.base_model, max_seq_length=cfg.max_seq_length,
+        dtype=None, load_in_4bit=cfg.load_in_4bit)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
+
+    # Attach LoRA adapters through Unsloth (replaces peft.LoraConfig + get_peft_model).
+    model = FastLanguageModel.get_peft_model(
+        model, r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=cfg.lora_dropout,
+        bias="none", target_modules=cfg.target_modules,
+        use_gradient_checkpointing="unsloth", random_state=cfg.seed,
+        max_seq_length=cfg.max_seq_length)
 
     def _to_text(ex):
         return {"text": to_training_text(ex, tok)}
@@ -181,40 +195,30 @@ def build_and_train(cfg: TrainConfig) -> str:
     eval_ds = (Dataset.from_list(val_rows).map(_to_text, remove_columns=["messages"])
                if val_rows else None)
 
-    quant = None
-    if cfg.load_in_4bit:
-        quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                                   bnb_4bit_compute_dtype=torch.float16,
-                                   bnb_4bit_use_double_quant=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.base_model, quantization_config=quant, device_map="auto",
-        torch_dtype=torch.float16)
-
-    lora = LoraConfig(r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=cfg.lora_dropout,
-                      bias="none", task_type="CAUSAL_LM", target_modules=cfg.target_modules)
-
     sft_args = SFTConfig(
         output_dir=cfg.output_dir, num_train_epochs=cfg.epochs,
         per_device_train_batch_size=cfg.batch_size,
         gradient_accumulation_steps=cfg.grad_accum, learning_rate=cfg.learning_rate,
         warmup_ratio=cfg.warmup_ratio, lr_scheduler_type=cfg.lr_scheduler_type,
-        weight_decay=cfg.weight_decay, fp16=True, logging_steps=cfg.logging_steps,
+        weight_decay=cfg.weight_decay,
+        fp16=not is_bfloat16_supported(), bf16=is_bfloat16_supported(),
+        logging_steps=cfg.logging_steps, optim="adamw_8bit",
         save_strategy=cfg.save_strategy, seed=cfg.seed, max_seq_length=cfg.max_seq_length,
         report_to="none", dataset_text_field="text",
         eval_strategy="epoch" if eval_ds is not None else "no")
 
-    trainer = SFTTrainer(model=model, args=sft_args, train_dataset=train_ds,
-                         eval_dataset=eval_ds, peft_config=lora)
+    trainer = SFTTrainer(model=model, tokenizer=tok, args=sft_args,
+                         train_dataset=train_ds, eval_dataset=eval_ds)
 
     if cfg.train_on_responses_only:
-        # Mask the prompt so loss is computed on the assistant answer only.
-        from trl import DataCollatorForCompletionOnlyLM
-        trainer.data_collator = DataCollatorForCompletionOnlyLM(
-            instruction_template=cfg.instruction_template,
-            response_template=cfg.response_template, tokenizer=tok)
+        # Mask the prompt so loss is computed on the assistant answer only (Unsloth helper).
+        from unsloth.chat_templates import train_on_responses_only
+        trainer = train_on_responses_only(
+            trainer, instruction_part=cfg.instruction_template,
+            response_part=cfg.response_template)
 
     trainer.train()
-    trainer.save_model(cfg.output_dir)
+    model.save_pretrained(cfg.output_dir)   # LoRA adapter
     tok.save_pretrained(cfg.output_dir)
     Path(cfg.output_dir, "train_config.json").write_text(
         json.dumps(asdict(cfg), ensure_ascii=False, indent=2), encoding="utf-8")
