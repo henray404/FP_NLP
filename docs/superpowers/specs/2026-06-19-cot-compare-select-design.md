@@ -25,6 +25,9 @@ correct**, and feed that winner into the SFT fine-tune pipeline.
   rate.
 - **Match key:** problem `id` (`problem_id`). Assumes both runs consumed the same `train_pool`
   ordering. A mismatch warning is printed if pools diverge.
+- **Final SFT artifact:** **copy** the winning run's already-emitted `sft/cot.jsonl` +
+  `sft/nocot.jsonl`. Both pipelines build ChatML in their filter cell with the same policy
+  (`best_per_problem=True, id_only=True`), so the winner's `sft/` is already correct — no rebuild.
 - **Unequal pools:** if the two runs attempted different soal sets (e.g. one ran `LIMIT=50`, the
   other full), print a warning and decide the winner on the **intersection** of attempted soal —
   fair head-to-head. Raw counts are also reported for context.
@@ -32,7 +35,7 @@ correct**, and feed that winner into the SFT fine-tune pipeline.
 ## Non-goals
 
 - No re-judging, no GPU, no new model loads.
-- No new code in `src/` — reuse `src.cot_synthesis.to_chatml.run` and `utils.read_jsonl`.
+- No new code in `src/` — reuse `utils.read_jsonl`.
 - Not training; only selecting + emitting the SFT-ready dataset.
 
 ## Notebook structure
@@ -55,9 +58,10 @@ write `/kaggle/working`).
 5. **Compare + pick winner** — print a table: generator | coverage (raw) | coverage (intersection) |
    total correct | acceptance rate. Winner = max intersection-coverage; tie-break by total correct.
    Store winner label + winning `correct.jsonl` path.
-6. **Rebuild winner SFT** — `to_chatml.run(winner_correct, SFT_DIR, best_per_problem=True,
-   id_only=True)` → `sft/cot.jsonl` + `sft/nocot.jsonl`. This notebook owns the final SFT artifact
-   under one consistent policy.
+6. **Copy winner SFT** — locate the winning run's `sft/` (sibling of its `correct.jsonl`, or
+   `rglob('cot.jsonl')` under its dataset dir) and copy `cot.jsonl` + `nocot.jsonl` into
+   `/kaggle/working/sft/`. If the winner's `sft/` is absent (only `correct.jsonl` uploaded), abort
+   with a clear message telling the user to upload it.
 7. **Download** — write `compare_summary.json` (per-generator metrics + winner) and zip `sft/` +
    the summary for download / Save Version.
 
@@ -94,4 +98,4 @@ write `/kaggle/working`).
 ## Testing
 
 Manual / notebook-level (no test suite in repo). Sanity asserts in-cell: both inputs found,
-winner is non-null, `sft/cot.jsonl` non-empty after rebuild.
+winner is non-null, `sft/cot.jsonl` non-empty after copy.
