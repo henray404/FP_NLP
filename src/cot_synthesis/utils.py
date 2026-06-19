@@ -107,7 +107,7 @@ def openai_client():
     return OpenAI(base_url=base, api_key=key)
 
 
-def with_retry(fn: Callable[[], T], *, tries: int = 6, base_wait: float = 2.0,
+def with_retry(fn: Callable[[], T], *, tries: int = 10, base_wait: float = 5.0,
                max_wait: float = 60.0) -> T:
     """Call fn() with exponential backoff. Handles Groq free-tier 429 rate limits and
     transient network errors. Re-raises the last error after `tries` attempts."""
