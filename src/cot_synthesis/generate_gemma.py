@@ -51,6 +51,15 @@ def _already_done(out_path: Path) -> dict[str, int]:
     return counts
 
 
+def _in_shard(idx: int, shard: int, num_shards: int) -> bool:
+    """Round-robin shard membership. Worker `shard` of `num_shards` ambil idx di mana
+    idx % num_shards == shard. Disjoint antar worker -> tidak ada kerja dobel; karena
+    problem_id pakai idx GLOBAL, dua output file tinggal di-concat. Solo: num_shards=1 -> semua."""
+    if num_shards <= 1:
+        return True
+    return idx % num_shards == shard
+
+
 # -------------------------------
 # Backends
 # -------------------------------
@@ -175,7 +184,9 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
 def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
                  model: str, n: int = 8, temperature: float = 0.7, top_p: float = 0.95,
                  max_tokens: int = 4096, limit: int | None = None, sleep: float = 0.0,
-                 tensor_parallel_size: int = 1) -> dict:
+                 tensor_parallel_size: int = 1, shard: int = 0, num_shards: int = 1) -> dict:
+    if not 0 <= shard < max(num_shards, 1):
+        raise ValueError(f"shard must be in [0, {num_shards}), got {shard}")
     input_path, out_path = Path(input_path), Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -184,6 +195,8 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
 
     todo = []
     for idx, item in enumerate(items):
+        if not _in_shard(idx, shard, num_shards):
+            continue
         pid = problem_id(item, idx)
         soal = get_soal(item)
         if not soal or done.get(pid, 0) >= n:
@@ -258,14 +271,19 @@ def main() -> None:
                     help="seconds to wait between api calls (throttle for Groq free tier)")
     ap.add_argument("--tensor-parallel-size", type=int, default=1,
                     help="vllm backend: number of GPUs to shard across (Kaggle 2xT4 -> 2)")
+    ap.add_argument("--shard", default="0/1",
+                    help="shard_i/num_shards round-robin split. Solo: 0/1. "
+                         "Paralel: kamu 0/2, teman 1/2, lalu concat output.")
     args = ap.parse_args()
 
+    shard_i, num_shards = (int(x) for x in args.shard.split("/"))
     model = args.model or (DEFAULT_API_MODEL if args.backend == "api" else DEFAULT_VLLM_MODEL)
     stats = run_generate(args.input, args.out, backend=args.backend, model=model,
                          n=args.num_candidates, temperature=args.temperature,
                          top_p=args.top_p, max_tokens=args.max_tokens,
                          limit=args.limit, sleep=args.sleep,
-                         tensor_parallel_size=args.tensor_parallel_size)
+                         tensor_parallel_size=args.tensor_parallel_size,
+                         shard=shard_i, num_shards=num_shards)
     print(f"Teacher={model} backend={args.backend} | {stats}")
 
 
