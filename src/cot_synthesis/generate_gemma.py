@@ -178,6 +178,15 @@ def generate_hf(prompts: list[str], model: str, n: int, temperature: float,
         for j in range(len(chunk)):
             yield start + j, texts[j * n:(j + 1) * n]
 
+    # Bebaskan GPU begitu semua soal kelar: hapus model teacher + kosongkan cache CUDA, biar
+    # judge vLLM (cell Filter) punya cukup memori. 2 model 7B-an gak muat bareng di 1 T4
+    # (gemma masih nyangkut -> judge ValueError "Free memory ... less than gpu_memory_utilization").
+    # gc.collect() di notebook gak cukup: referensi `m` nyangkut di frame generator ini.
+    import gc as _gc
+    del m, tok
+    _gc.collect()
+    torch.cuda.empty_cache()
+
 
 # -------------------------------
 # Driver
