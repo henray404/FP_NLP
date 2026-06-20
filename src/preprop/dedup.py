@@ -18,6 +18,11 @@ DECONTAM_THRESHOLD = 0.90
 BATCH_SIZE = 128
 
 
+def get_text(item: dict) -> str:
+    """Field soal/pertanyaan, apa pun schema-nya (un_pdfs pakai `soal`, NumGLUE `question`)."""
+    return (item.get("question") or item.get("soal") or "").strip()
+
+
 def embed_texts(texts: list[str], model: SentenceTransformer) -> np.ndarray:
     return model.encode(
         texts,
@@ -72,7 +77,7 @@ def run_dedup(
             items.append(json.loads(line))
 
     model = SentenceTransformer(EMBED_MODEL)
-    questions = [item["question"] for item in items]
+    questions = [get_text(item) for item in items]
     embeddings = embed_texts(questions, model)
 
     keep_idx = dedup(embeddings, DEDUP_THRESHOLD)
@@ -84,7 +89,7 @@ def run_dedup(
             with open(bpath, encoding="utf-8") as f:
                 for line in f:
                     bench_items.append(json.loads(line))
-        bench_emb = embed_texts([b["question"] for b in bench_items], model)
+        bench_emb = embed_texts([get_text(b) for b in bench_items], model)
         safe = decontaminate(embeddings[keep_idx], bench_emb, DECONTAM_THRESHOLD)
         keep_idx = [keep_idx[i] for i in safe]
         print(f"After decontamination: {len(keep_idx)}")

@@ -2,12 +2,16 @@ __pycache__/
 *.py[cod]
 .env
 *.egg-info/
+.DS_Store
 
 # Data (besar -> disimpan di Google Drive, jangan push)
 # Keep folder data/ tapi abaikan semua isinya kecuali README placeholder.
 data/*
 
 !data/README.md
+# data/Final = dataset bersih siap CoT (kecil ~17MB, sengaja di-track utk handoff).
+# Raw/Cache/intermediate (Cache/, NumGlue/*.json 87MB, filtered/, dll) TETAP di-ignore.
+!data/Final/
 CLAUDE_PROMPT.md
 CLAUDE.md
 

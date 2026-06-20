@@ -15,53 +15,45 @@
 
 ### 1.1 Latar Belakang
 
-Matematika merupakan salah satu kompetensi inti dalam sistem pendidikan Indonesia. Kemampuan ini
-diuji secara berjenjang melalui asesmen nasional, seleksi masuk perguruan tinggi (SNBT), hingga
-ajang kompetisi seperti Olimpiade Sains Nasional (OSN/KSN). Di sisi lain, banyak peserta didik
-menghadapi kesulitan dalam penalaran matematis dan keterbatasan akses terhadap pendampingan
-belajar yang terjangkau. Dalam beberapa tahun terakhir, model bahasa besar (*Large Language Model*,
-LLM) berkembang pesat dan mulai dimanfaatkan sebagai alat bantu belajar, termasuk untuk
-menyelesaikan dan menjelaskan soal matematika. Hal ini membuka peluang menghadirkan tutor digital
-yang dapat menalar langkah demi langkah.
+Matematika merupakan salah satu kompetensi inti dalam sistem pendidikan Indonesia, dan kemampuannya
+diuji secara berjenjang mulai dari asesmen di tingkat SMA, seleksi masuk perguruan tinggi (SNBT),
+hingga kompetisi seperti Olimpiade Sains Nasional (OSN/KSN). Seiring berkembangnya model bahasa
+besar (*Large Language Model*, LLM), model semacam ini mulai dipakai sebagai alat bantu belajar,
+termasuk untuk menyelesaikan dan menjelaskan soal matematika. Sebagian besar pengembangan dan
+evaluasi LLM untuk penalaran matematis sejauh ini berlangsung dalam Bahasa Inggris dan diukur pada
+*benchmark* berbahasa Inggris (Hendrycks et al., 2021), sehingga capaiannya pada konteks dan bahasa
+lain belum tentu setara.
 
-Namun, kemampuan penalaran matematis LLM tidak muncul secara cuma-cuma. Penelitian menunjukkan
-bahwa LLM baru menalar dengan baik bila didorong menuliskan langkah penyelesaian secara eksplisit
-melalui *chain-of-thought* (CoT) *prompting* (Wei et al., 2022), bahkan hanya dengan instruksi
-sederhana "mari berpikir langkah demi langkah" (Kojima et al., 2022). Persoalannya, efek CoT yang
-kuat ini awalnya hanya teramati pada model berukuran sangat besar (puluhan hingga ratusan miliar
-parameter) (Wei et al., 2022; Lewkowycz et al., 2022) — model yang mahal dijalankan dan tidak
-praktis untuk diterapkan secara luas di lingkungan dengan sumber daya terbatas seperti sekolah di
-Indonesia.
+Kemampuan penalaran matematis LLM diketahui meningkat ketika model didorong menuliskan langkah
+penyelesaian secara eksplisit melalui *chain-of-thought* (CoT) (Wei et al., 2022; Kojima et al.,
+2022). Namun efek ini umumnya teramati paling kuat pada model berukuran sangat besar (Wei et al.,
+2022; Lewkowycz et al., 2022), yang mahal untuk dijalankan. Sebagai alternatif, sejumlah penelitian
+menempuh jalur *knowledge distillation*, yaitu memindahkan kemampuan penalaran dari model besar ke
+model yang lebih kecil dengan melatihnya pada jejak CoT yang dihasilkan model besar tersebut
+(DeepSeek-AI et al., 2025). Untuk menjaga mutu data latih, jejak yang dihasilkan dapat disaring
+melalui *rejection sampling* — hanya solusi yang formatnya lengkap dan jawabannya benar yang
+dipakai — sebagaimana diterapkan pada dataset OpenMathReasoning dalam solusi pemenang AIMO-2
+(Gitman et al., 2025). Sejauh mana pendekatan ini berhasil pada model yang **sangat** kecil masih
+menjadi pertanyaan terbuka, karena model kecil memiliki kapasitas terbatas untuk menyerap pola
+penalaran yang kompleks.
 
-Untuk mengatasi keterbatasan tersebut, arah penelitian bergeser dari sekadar *prompting* pada
-model raksasa menuju **transfer kemampuan penalaran ke model kecil melalui *knowledge
-distillation***: model *teacher* yang kuat membangkitkan jejak penalaran CoT, lalu jejak tersebut
-dipakai melatih model *student* yang lebih ringkas (DeepSeek-AI et al., 2025). Perkembangan
-mutakhir menyempurnakan pendekatan ini dengan **sintesis data berbasis *rejection sampling***:
-*teacher* membangkitkan banyak kandidat solusi per soal, kemudian hanya solusi yang formatnya
-lengkap dan jawabannya benar yang dipertahankan sebagai data latih, sebagaimana terbukti efektif
-pada dataset OpenMathReasoning yang menjadi fondasi solusi pemenang kompetisi AIMO-2 (Gitman et
-al., 2025). Pendekatan ini lebih unggul dibanding distilasi naif karena menjamin mutu data latih
-melalui penyaringan kebenaran, bukan sekadar meniru keluaran *teacher* apa adanya.
+Pada konteks Bahasa Indonesia, persoalan bertambah. Model multibahasa seperti Qwen2.5 dapat
+menyelesaikan sebagian soal matematika Indonesia secara *zero-shot*, tetapi kerap keliru pada
+kosakata, struktur soal, maupun konvensi format jawaban kurikulum Indonesia. Di sisi lain, data
+penalaran matematis berbahasa Indonesia yang berkualitas dan disertai solusi terverifikasi relatif
+langka, sementara mayoritas dataset dan studi distilasi yang ada berbahasa Inggris (Toshniwal et
+al., 2024; Gitman et al., 2025). Karena itu, belum jelas apakah resep distilasi-CoT yang efektif di
+ranah Inggris dapat dipindahkan begitu saja ke Bahasa Indonesia dengan model berukuran kecil.
 
-Meskipun demikian, hampir seluruh upaya tersebut berpusat pada Bahasa Inggris (Hendrycks et al.,
-2021; Toshniwal et al., 2024; Gitman et al., 2025). Model multibahasa seperti Qwen2.5 memang dapat
-menyelesaikan sebagian soal matematika Indonesia secara *zero-shot*, tetapi kerap keliru memahami
-kosakata, struktur soal, dan konvensi format jawaban kurikulum Indonesia. Sementara itu,
-efektivitas distilasi-CoT pada **Bahasa Indonesia** dengan **model *student* berukuran sangat
-kecil (0.5B–1.5B parameter)** masih belum banyak dieksplorasi — padahal justru kombinasi inilah
-yang relevan secara praktis untuk penerapan lokal yang murah.
-
-Berdasarkan kesenjangan tersebut, penelitian ini membangun model bahasa Indonesia berukuran kecil
-untuk penalaran matematis dengan mereplikasi-secara-mini resep distilasi-CoT AIMO-2. Solusi yang
-ditawarkan berupa *pipeline* menyeluruh: (1) mengakuisisi dan membersihkan soal matematika
-berbahasa Indonesia; (2) mensintesis solusi CoT berbahasa Indonesia menggunakan *teacher model*
-dengan penyaringan *rejection sampling*; (3) melatih model *student* Qwen2.5 (0.5B/1.5B) secara
-hemat sumber daya dengan QLoRA; dan (4) mengevaluasi peningkatan kemampuan penalaran secara
-terkontrol (CoT vs non-CoT) dan terhadap model *baseline*. Dengan demikian, penelitian ini
-diharapkan memberi kontribusi teoretis mengenai efektivitas *knowledge distillation* via CoT pada
-bahasa non-Inggris dengan model kecil, sekaligus kontribusi praktis berupa model ringan dan
-*pipeline* yang dapat diadaptasi untuk mendukung pembelajaran matematika di Indonesia.
+Berdasarkan permasalahan tersebut, penelitian ini menawarkan solusi berupa replikasi-skala-kecil
+resep distilasi-CoT bergaya AIMO-2 untuk Bahasa Indonesia, yaitu mensintesis solusi penalaran
+menggunakan *teacher model* yang disaring secara *rejection sampling*, kemudian memakainya untuk
+melatih model *student* Qwen2.5 (0.5B/1.5B) secara hemat sumber daya dengan QLoRA, lalu
+mengevaluasinya baik secara terkontrol — CoT dibandingkan non-CoT pada soal yang sama — maupun
+terhadap model *baseline* tanpa *fine-tuning*. Keberhasilan pendekatan ini tidak diasumsikan sejak
+awal; justru keterbatasan kapasitas model kecil dan kelangkaan data matematika berbahasa Indonesia
+yang menjadikan pertanyaan ini layak diuji, sehingga penelitian ini sekaligus diharapkan
+menghasilkan dataset dan *pipeline* yang dapat dimanfaatkan penelitian berikutnya.
 
 ### 1.2 Rumusan Masalah
 
@@ -110,91 +102,169 @@ bahasa non-Inggris dengan model kecil, sekaligus kontribusi praktis berupa model
 
 ## BAB II — TINJAUAN PUSTAKA
 
-### 2.1 Penelitian Terdahulu dan Analisis Kesenjangan
+### 2.1 Penelitian Terdahulu
 
-| Penelitian | Fokus | Kesenjangan terhadap penelitian ini |
-|---|---|---|
-| Hendrycks et al. (2021) | *Benchmark* MATH untuk evaluasi penalaran matematika | Membahas evaluasi, bukan cara melatih model |
-| Wei et al. (2022) | *Chain-of-Thought prompting* meningkatkan penalaran | Efektif pada model sangat besar (100B+); belum mengeksplorasi transfer ke model kecil via distilasi |
-| Kojima et al. (2022) | *Zero-shot* CoT ("let's think step by step") | Hanya *prompting*, tanpa pelatihan; berbahasa Inggris |
-| Wang et al. (2023) | *Self-consistency* (mayoritas banyak jalur penalaran) | Menjadi dasar metrik maj@4, tetapi belum pada konteks Indonesia/model kecil |
-| Kim et al. (2023) | Ekspansi/diversifikasi jalur penalaran (ATHENA) | Hanya dataset Bahasa Inggris; belum untuk pembuatan data latih model kecil |
-| DeepSeek-AI et al. (2025) | Distilasi penalaran dari model besar ke kecil via CoT | Data distilasi sepenuhnya Bahasa Inggris |
-| Gitman et al. (2025) | Dataset OpenMathReasoning & resep pemenang AIMO-2 | Berbahasa Inggris dan berskala penuh; belum diadaptasi ke konteks Indonesia berbiaya rendah |
+#### 2.1.1 Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei dkk., 2022)
+Wei dkk. (2022) memperkenalkan *chain-of-thought* (CoT) *prompting*, yaitu menyertakan contoh
+*few-shot* yang memuat langkah penalaran antara sebelum jawaban akhir, sehingga model menalar
+bertahap alih-alih memetakan soal langsung ke jawaban. Kontribusi utamanya: pada *benchmark*
+aritmetika dan penalaran (antara lain GSM8K), CoT meningkatkan akurasi secara substansial, dan
+peningkatan ini bersifat *emergent* — baru tampak nyata pada model berukuran sangat besar (sekitar
+seratus miliar parameter ke atas) dan nyaris tak bermanfaat pada model kecil. **Relevansi:** menjadi
+dasar format data latih dan templat *prompt* penelitian ini; sekaligus menyiratkan tantangan inti —
+bagaimana memindahkan kemampuan yang lahir di model besar ke model *student* kecil.
 
-**Posisi penelitian ini.** Penelitian ini menggabungkan resep distilasi-CoT-via-*rejection-sampling*
-ala AIMO-2/OpenMathReasoning (Gitman et al., 2025) dengan **Bahasa Indonesia** dan **model *student*
-sangat kecil (0.5B/1.5B)**, serta perbandingan **terkontrol CoT vs non-CoT** — kombinasi yang belum
-dibahas karya-karya di atas.
+#### 2.1.2 Large Language Models are Zero-Shot Reasoners (Kojima dkk., 2022)
+Kojima dkk. (2022) menunjukkan CoT dapat dipicu tanpa contoh (*zero-shot*) hanya dengan menambahkan
+instruksi sederhana semacam "*Let's think step by step*". Kontribusinya membuktikan kemampuan
+penalaran bertahap dapat diaktifkan melalui instruksi minimal. **Relevansi:** menjadi dasar
+perancangan templat instruksi berbahasa Indonesia yang meminta penyelesaian rinci tanpa bergantung
+pada contoh *few-shot* yang mahal token.
+
+#### 2.1.3 Self-Consistency Improves Chain of Thought Reasoning (Wang dkk., 2023)
+Wang dkk. (2023) mengganti pemilihan keluaran *greedy* dengan strategi membangkitkan banyak jalur
+penalaran melalui *sampling*, lalu memilih jawaban akhir melalui suara mayoritas. Untuk N sampel
+dengan pasangan (jalur, jawaban) {(rᵢ, aᵢ)}, jawaban final dipilih sebagai
+â = argmaxₐ Σᵢ 𝟙[aᵢ = a]. Kontribusinya menunjukkan marginalisasi atas beragam jalur penalaran
+konsisten menaikkan akurasi dibanding satu jalur tunggal. **Relevansi:** menjadi dasar teoretis
+metrik **maj@4** pada penelitian ini.
+
+#### 2.1.4 Measuring Mathematical Problem Solving with the MATH Dataset (Hendrycks dkk., 2021)
+Hendrycks dkk. (2021) merilis *benchmark* MATH berisi 12.500 soal matematika tingkat kompetisi yang
+masing-masing dilengkapi solusi langkah-demi-langkah, serta menunjukkan model bahasa pada masa itu
+masih jauh di bawah kemampuan manusia. Kontribusinya menyediakan tolok ukur penalaran dengan jawaban
+terverifikasi. **Relevansi:** menjadi acuan desain evaluasi berjawaban terverifikasi dan motivasi
+penggunaan pencocokan jawaban yang ketat.
+
+#### 2.1.5 Solving Quantitative Reasoning Problems with Language Models — Minerva (Lewkowycz dkk., 2022)
+Lewkowycz dkk. (2022) melatih-lanjut model bahasa besar pada korpus teknis dan matematis (Minerva)
+dan mencapai performa kuat pada MATH serta soal STEM, sebagian dengan bantuan *majority voting*.
+Kontribusinya menegaskan dua hal: pentingnya **data domain matematika** yang banyak dan manfaat
+agregasi banyak sampel. **Relevansi:** mendukung argumen bahwa pelatihan *on-domain* (data
+matematika) dan voting (maj@k) relevan untuk meningkatkan penalaran — meski penelitian ini bekerja
+pada skala model jauh lebih kecil.
+
+#### 2.1.6 DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via RL (DeepSeek-AI dkk., 2025)
+DeepSeek-AI dkk. (2025) membangun kemampuan penalaran melalui *reinforcement learning*, lalu
+**mendistilasi** kemampuan tersebut ke model *dense* yang lebih kecil (keluarga Qwen dan Llama)
+dengan melatihnya pada jejak penalaran model besar. Kontribusinya memberi bukti empiris bahwa
+penalaran dapat ditransfer ke model kecil via data CoT. **Relevansi:** menjadi landasan kelayakan
+distilasi-ke-model-kecil dan rujukan pemilihan keluarga *teacher* berbasis R1.
+
+#### 2.1.7 AIMO-2 Winning Solution / OpenMathReasoning (Gitman dkk., 2025) — *rujukan utama*
+Gitman dkk. (2025) menyusun dataset OpenMathReasoning dan resep pemenang kompetisi AIMO-2: untuk tiap
+soal dibangkitkan banyak kandidat solusi CoT oleh *teacher* penalaran kuat, lalu disaring menjadi
+solusi yang benar (*rejection sampling*), dilengkapi solusi *tool-integrated* dan mekanisme pemilihan
+solusi (GenSelect). ⟦VERIFIKASI⟧ Skala dataset dilaporkan ratusan ribu soal unik dengan jutaan jejak
+CoT (≈540 ribu soal; ≈3,2 juta solusi CoT — angka dari dokumentasi `pipeline.md`/kartu dataset,
+perlu diverifikasi ke sumber). Kontribusinya menjadi resep mutakhir pembentukan data penalaran
+matematika berskala besar. **Relevansi:** menjadi **resep utama yang direplikasi** penelitian ini,
+diturunkan ke skala kecil dan konteks Bahasa Indonesia. *(Catatan: rujukan ini berupa technical
+report/preprint — lihat Daftar Pustaka.)*
+
+#### 2.1.8 OpenMathInstruct-1 (Toshniwal dkk., 2024)
+Toshniwal dkk. (2024) menyusun dataset penyetelan instruksi matematika berskala 1,8 juta contoh
+dengan membangkitkan solusi dari model terbuka lalu menyaringnya berdasarkan kebenaran jawaban.
+**Relevansi:** contoh konkret pembentukan data latih matematika via *generate-then-filter* yang
+menjadi pola dasar tahap sintesis CoT penelitian ini. † (venue/tahun perlu dikonfirmasi.)
+
+#### 2.1.9 Sintesis: Posisi Penelitian
+Karya-karya di atas menetapkan tiga fondasi — CoT sebagai mekanisme penalaran (2.1.1–2.1.3),
+distilasi/penyaringan sebagai cara membentuk data (2.1.6–2.1.8), dan evaluasi berjawaban
+terverifikasi (2.1.4–2.1.5) — namun seluruhnya berpusat pada Bahasa Inggris dan, untuk efek CoT,
+pada model besar. Belum ada yang menelaah penerapan resep ini pada **Bahasa Indonesia** dengan
+**model *student* sangat kecil (0.5B/1.5B)** sekaligus **membandingkan CoT vs non-CoT secara
+terkontrol**. Celah inilah yang diisi penelitian ini.
 
 ### 2.2 Landasan Teori
 
-#### 2.2.1 Model Bahasa Besar (LLM) dan Qwen2.5
-**Apa.** LLM adalah model berbasis arsitektur Transformer yang dilatih pada korpus teks masif untuk
-memprediksi token berikutnya, sehingga mampu memahami dan membangkitkan teks lintas tugas.
-**Mengapa Qwen2.5.** Penelitian ini memakai keluarga Qwen2.5 sebagai *baseline* dan *student*
-karena: (a) tersedia *open-weight* pada ukuran kecil (0.5B/1.5B) yang dapat dilatih pada GPU
-terbatas; (b) memiliki dukungan multibahasa yang mencakup Bahasa Indonesia; dan (c) mengikuti format
-percakapan ChatML yang memudahkan *response-only training*. Ukuran kecil dipilih secara sengaja
-karena tujuan praktisnya adalah model ringan yang dapat di-*deploy* secara lokal dan murah.
+#### 2.2.1 Model Bahasa Besar dan Keluarga Qwen2.5
+Model bahasa besar (*Large Language Model*, LLM) adalah model autoregresif berbasis arsitektur
+Transformer yang dilatih memaksimalkan peluang token berikutnya pada korpus teks masif. Setelah
+prapelatihan, kemampuan lintas-tugas muncul tanpa pelatihan khusus per-tugas. Penelitian ini memakai
+keluarga Qwen2.5 — model *decoder-only* yang tersedia *open-weight* pada beberapa skala, termasuk
+0,5 miliar dan 1,5 miliar parameter — sebagai model *baseline* maupun *student*. Skala kecil ini
+dapat dilatih pada GPU bermemori terbatas dan menjadikan model praktis untuk penerapan lokal, namun
+sekaligus berkapasitas terbatas dalam menyerap pola penalaran panjang — ketegangan yang justru
+diuji penelitian ini. Format percakapan ChatML yang dipakai Qwen memisahkan giliran *user* dan
+*assistant* secara eksplisit, sehingga memudahkan pelatihan dengan *loss* yang dimasking hanya pada
+giliran jawaban (lihat 2.2.5).
 
-#### 2.2.2 Penalaran *Chain-of-Thought* (CoT)
-**Apa.** CoT adalah teknik mendorong model menuliskan langkah penalaran antara secara eksplisit
-sebelum jawaban akhir (Wei et al., 2022); variannya yang *zero-shot* hanya menambahkan instruksi
-singkat (Kojima et al., 2022). **Mengapa.** Pada soal matematika yang membutuhkan banyak langkah,
-menalar bertahap menurunkan beban komputasi per langkah dan mengurangi kesalahan kumulatif
-dibanding menjawab langsung. Penelitian ini menstandarkan jawaban akhir dalam format `\boxed{...}`
-agar dapat diekstraksi dan dinilai otomatis. Konsep CoT juga menjadi landasan teknik *self-
-consistency*, yaitu mengambil jawaban mayoritas dari beberapa jalur penalaran untuk menaikkan
-akurasi (Wang et al., 2023) — dasar metrik maj@4 pada penelitian ini.
+#### 2.2.2 Penalaran Chain-of-Thought dan Self-Consistency
+*Chain-of-thought* adalah representasi penalaran sebagai barisan langkah antara z = (z₁, …, z_m)
+yang dihasilkan model sebelum jawaban akhir a, alih-alih memetakan soal x langsung ke a. Dengan
+membiarkan model "menalar dengan menulis", komputasi terdistribusi sepanjang langkah dan
+ketergantungan antar-langkah dapat dimodelkan secara eksplisit (Wei dkk., 2022; Kojima dkk., 2022).
+Penelitian ini menstandarkan jawaban akhir ke dalam penanda `\boxed{…}` agar dapat diekstraksi dan
+dinilai secara otomatis dari teks penalaran yang panjang. Karena satu jalur penalaran tunggal rapuh
+terhadap kesalahan, *self-consistency* (Wang dkk., 2023) membangkitkan beberapa jalur lalu memungut
+jawaban mayoritas; prinsip ini dioperasionalkan sebagai metrik maj@4 (lihat 2.2.6). Perlu dicatat,
+manfaat CoT pada model kecil tidak dijamin sebesar pada model besar (Wei dkk., 2022) — sebuah
+batasan yang relevan langsung dengan setelan penelitian ini.
 
-#### 2.2.3 *Knowledge Distillation* dan *Rejection Sampling*
-**Apa.** *Knowledge distillation* mentransfer kemampuan dari model *teacher* kuat ke *student* kecil.
-Dalam penalaran matematika, *teacher* membangkitkan beberapa kandidat solusi per soal, lalu hanya
-solusi **lengkap** (memuat `\boxed{}`) dan **benar** yang dipertahankan — prosedur *rejection
-sampling* (DeepSeek-AI et al., 2025; Gitman et al., 2025). **Mengapa dipilih.** Dibanding distilasi
-naif yang meniru seluruh keluaran *teacher*, *rejection sampling* menyaring kebenaran sehingga
-*student* hanya belajar dari solusi yang terbukti benar; ini krusial ketika *teacher* tidak
-sempurna. Penyaringan ini menjadi inti pembentukan data CoT pada penelitian ini.
+#### 2.2.3 Knowledge Distillation dan Rejection Sampling
+*Knowledge distillation* memindahkan kemampuan dari model *teacher* berkapasitas besar ke model
+*student* yang lebih kecil. Pada penalaran matematika, bentuk yang dipakai bukan penyelarasan
+distribusi keluaran, melainkan **distilasi berbasis data**: *teacher* membangkitkan k kandidat solusi
+CoT per soal, lalu hasilnya disaring (DeepSeek-AI dkk., 2025; Gitman dkk., 2025). Penyaringan
+mengikuti prinsip *rejection sampling* — sebuah kandidat dipertahankan hanya bila (i) lengkap secara
+format (memuat `\boxed{}`) dan (ii) jawaban akhirnya terverifikasi benar terhadap kunci. Dengan
+demikian, dari banyak kandidat yang mungkin keliru, hanya jejak penalaran yang sampai ke jawaban
+benar yang menjadi data latih. Pendekatan ini menukar volume data dengan keandalan label: ia menuntut
+banyak pembangkitan oleh *teacher*, tetapi menjamin *student* belajar dari solusi yang benar meskipun
+*teacher* tidak sempurna. Konsekuensinya, **laju penerimaan** (proporsi kandidat lolos) menjadi
+indikator penting kualitas *teacher* dan kelayakan jumlah kandidat per soal.
 
-#### 2.2.4 *Parameter-Efficient Fine-Tuning*: LoRA dan QLoRA
-**Apa.** LoRA membekukan bobot model dasar dan hanya melatih matriks beradik-rendah yang
-disisipkan, sehingga jumlah parameter yang dilatih jauh berkurang (Hu et al., 2022). QLoRA
-memperluasnya dengan mengkuantisasi model dasar ke 4-bit (NF4) sehingga *fine-tuning* dapat berjalan
-pada GPU bermemori terbatas (Dettmers et al., 2023). **Mengapa.** *Full fine-tuning* model — meski
-kecil — tetap menuntut memori besar di luar kapasitas GPU kelas Kaggle T4; QLoRA memangkas kebutuhan
-memori secara drastis tanpa kehilangan kualitas berarti, sehingga sesuai dengan batasan sumber daya
-penelitian ini.
+Verifikasi kebenaran pada tahap penyaringan tidak selalu dapat dilakukan secara otomatis. Pada
+dataset penelitian ini, kunci jawaban kerap berupa kalimat berbahasa Indonesia tanpa penanda
+`\boxed`, sehingga pencocokan string maupun simbolik (SymPy) menjadi tidak andal. Untuk mengatasinya
+dipakai pendekatan **LLM sebagai penilai (*LLM-as-a-judge*)**, yaitu memanfaatkan sebuah LLM untuk
+memutuskan apakah jawaban prediksi *teacher* ekuivalen secara nilai dengan kunci jawaban (Zheng, L.,
+dkk., 2023). LLM penilai diberi soal, kunci jawaban, dan jawaban prediksi, lalu diminta memberi
+keputusan biner ("benar"/"salah") pada suhu nol agar deterministik. Pendekatan ini lebih luwes
+terhadap variasi penulisan jawaban dibanding pencocokan kaku, tetapi keandalannya bergantung pada
+kapasitas LLM penilai dan rumusan *prompt* penilaian sehingga keputusannya tetap perlu di-*sanity-
+check*. ⟦VERIFIKASI SITASI⟧ Zheng, L., dkk. (2023) di sini merujuk karya MT-Bench/Chatbot Arena —
+**berbeda** dari Zheng, M., dkk. (2023) tentang CoT tabular; lihat Daftar Pustaka.
 
-#### 2.2.5 Penyetelan Instruksi dan *Response-Only Training*
-**Apa.** Penyetelan instruksi melatih model mengikuti format perintah–jawaban (Ouyang et al., 2022).
-Pada SFT, *loss* dapat dimasking hanya pada token *jawaban* (*response-only*) sehingga model belajar
-**cara menjawab**, bukan menghafal *prompt*. **Mengapa.** Untuk membandingkan CoT vs non-CoT secara
-adil, *prompt* dan model dasar dipertahankan identik dan hanya target jawaban (berlangkah vs
-ringkas) yang divariasikan; *response-only masking* memastikan sinyal pelatihan terpusat pada
-perbedaan inilah.
+#### 2.2.4 Parameter-Efficient Fine-Tuning: LoRA dan QLoRA
+*Fine-tuning* penuh memperbarui seluruh bobot model dan menuntut memori sebesar model itu sendiri
+ditambah status optimizer-nya. *Low-Rank Adaptation* (LoRA; Hu dkk., 2022) berangkat dari hipotesis
+bahwa pembaruan bobot selama adaptasi memiliki *rank* intrinsik rendah, sehingga untuk bobot dasar
+W₀ ∈ ℝ^{d×k} yang **dibekukan**, pembaruannya dipodelkan sebagai hasil kali dua matriks beradik-rendah:
 
-#### 2.2.6 Evaluasi Penalaran Matematika dan Metrik
-**Apa.** Evaluasi penalaran matematis lazim memakai *benchmark* berjawaban terverifikasi (Hendrycks
-et al., 2021; Lewkowycz et al., 2022). Metrik penelitian ini: **pass@1** (benar pada satu sampel),
-**pass@4** (benar pada ≥1 dari empat sampel), dan **maj@4** (benar berdasarkan jawaban mayoritas
-dari empat sampel; berakar pada *self-consistency*, Wang et al., 2023). **Mengapa berlapis.**
-Penilaian kebenaran dilakukan dengan pencocokan bertingkat (eksak → numerik → simbolik) karena
-jawaban dapat ekuivalen secara nilai meski berbeda penulisan (mis. `0.5` = `1/2`); pencocokan string
-semata akan salah-vonis banyak jawaban benar.
+  W = W₀ + ΔW = W₀ + B·A,  dengan B ∈ ℝ^{d×r}, A ∈ ℝ^{r×k}, r ≪ min(d, k).
 
-#### 2.2.7 Dataset OpenMathReasoning dan AIMO-2
-OpenMathReasoning adalah dataset penalaran matematika berskala besar (ratusan ribu soal dengan
-jutaan jejak CoT) yang menjadi fondasi solusi pemenang AIMO-2; resepnya membangkitkan banyak jejak
-CoT per soal dengan *teacher* penalaran kuat lalu menyaringnya menjadi solusi benar (Gitman et al.,
-2025). Penelitian ini mereplikasi resep tersebut dalam skala kecil dan konteks berbahasa Indonesia.
-⟦VERIFIKASI SITASI⟧ Gitman et al. (2025) merupakan *technical report* (preprint) — lihat catatan
-Daftar Pustaka.
+Hanya A dan B yang dilatih, sehingga jumlah parameter terlatih turun dari d·k menjadi r·(d+k);
+kontribusi adapter biasanya diskalakan faktor α/r. *QLoRA* (Dettmers dkk., 2023) melangkah lebih jauh
+dengan mengkuantisasi W₀ ke presisi 4-bit *NormalFloat* (NF4) — tipe data yang optimal untuk bobot
+berdistribusi mendekati normal — sambil tetap melatih adapter LoRA pada presisi lebih tinggi,
+ditambah *double quantization* dan *paged optimizers* untuk menekan lonjakan memori. Gabungan ini
+memungkinkan *fine-tuning* model besar pada satu GPU bermemori terbatas tanpa penurunan kualitas yang
+berarti. Penelitian ini memakai QLoRA agar pelatihan *student* layak dijalankan pada GPU kelas
+Kaggle T4.
 
-### 2.3 Kebaruan Penelitian
-Kebaruan terletak pada **adaptasi resep distilasi-CoT AIMO-2 ke Bahasa Indonesia** untuk **model
-student sangat kecil**, disertai **perbandingan terkontrol CoT vs non-CoT** pada soal identik, dan
-**dekontaminasi** *holdout* terhadap data latih demi evaluasi yang sahih.
+#### 2.2.5 Supervised Fine-Tuning dan Response-Only Masking
+*Supervised fine-tuning* (SFT) melatih model meniru pasangan instruksi–jawaban berlabel, lazim
+sebagai tahap penyetelan instruksi (Ouyang dkk., 2022). Pada format ChatML, satu contoh terdiri atas
+giliran *user* (soal beserta instruksi) dan *assistant* (solusi target). *Loss* dapat dihitung hanya
+pada token giliran *assistant* (*response-only masking*) sehingga model belajar **menghasilkan
+jawaban**, bukan menghafal *prompt*. Hal ini penting bagi desain eksperimen: dengan model dasar dan
+hiperparameter dipertahankan identik dan **hanya** target jawaban yang divariasikan — berlangkah
+(CoT) versus ringkas (non-CoT) — selisih performa yang teramati dapat diatribusikan pada keberadaan
+penalaran eksplisit, bukan pada faktor lain.
+
+#### 2.2.6 Evaluasi Penalaran dan Metrik pass@k / maj@k
+Evaluasi penalaran matematis menuntut jawaban yang dapat diverifikasi (Hendrycks dkk., 2021;
+Lewkowycz dkk., 2022). Tiga metrik dipakai: **pass@1**, yaitu proporsi soal yang benar pada satu
+sampel (dekode *greedy*); **pass@k**, yaitu proporsi soal yang benar pada setidaknya satu dari k
+sampel — mengukur kemampuan model menemukan solusi bila diberi beberapa percobaan; dan **maj@k**,
+yaitu proporsi soal yang benar berdasarkan jawaban mayoritas dari k sampel — operasionalisasi
+*self-consistency* (Wang dkk., 2023) yang lebih ketat daripada pass@k karena menuntut konsistensi,
+bukan sekadar keberuntungan satu sampel. Karena dua jawaban dapat ekuivalen secara nilai meski
+berbeda penulisan (misalnya 0,5 dan 1/2, atau 2x dan x·2), penilaian kebenaran dilakukan bertingkat:
+pencocokan **eksak**, lalu **numerik** (toleransi galat), lalu **simbolik** menggunakan sistem aljabar
+komputer (SymPy). Pencocokan string semata akan salah-vonis banyak jawaban yang sebenarnya benar.
 
 ---
 
@@ -376,6 +446,11 @@ Conference on Learning Representations (ICLR 2023)*.
 Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter, B., Xia, F., Chi, E., Le, Q. V., & Zhou, D.
 (2022). Chain-of-thought prompting elicits reasoning in large language models. In *Advances in
 Neural Information Processing Systems* (Vol. 35, pp. 24824–24837).
+
+† Zheng, L., Chiang, W.-L., Sheng, Y., Zhuang, S., Wu, Z., Zhuang, Y., Lin, Z., Li, Z., Li, D., Xing,
+E. P., Zhang, H., Gonzalez, J. E., & Stoica, I. (2023). Judging LLM-as-a-judge with MT-Bench and
+Chatbot Arena. In *Advances in Neural Information Processing Systems, Datasets and Benchmarks Track
+(NeurIPS 2023)*. (Berbeda dari Zheng, M., dkk., 2023.)
 
 Zheng, M., Yang, H., Jiang, W., Lin, Z., Lyu, Y., She, Q., & Wang, W. (2023). Chain-of-thought
 reasoning in tabular language models. In *Findings of the Association for Computational Linguistics:

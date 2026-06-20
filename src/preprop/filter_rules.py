@@ -7,15 +7,35 @@ import re
 import json
 from pathlib import Path
 
-from langdetect import detect, LangDetectException
+from langdetect import detect_langs, LangDetectException
 
 
 # ── Rules ──────────────────────────────────────────────────────────────────────
 
 MC_PATTERN = re.compile(
-    r"^\s*[AaBbCcDdEe][.)\s]",
+    r"(?:^|\s)[AaBbCcDdEe][.)]\s",
     re.MULTILINE,
 )
+
+# LaTeX line break "\\" sering dipakai memisah opsi MC dalam satu baris -> ubah jadi newline.
+_LATEX_BREAK = re.compile(r"\\\\")
+
+# Untuk deteksi bahasa: buang math/LaTeX/angka supaya langdetect tidak keok di soal padat rumus.
+_LATEX_RE = re.compile(
+    r"\$[^$]+\$"
+    r"|\\[a-zA-Z]+\{[^}]*\}"
+    r"|\\[a-zA-Z]+"
+    r"|[0-9+\-*/^_=().]+"
+)
+
+# Token Indonesia: kalau muncul, teks hampir pasti ID (shortcut sebelum langdetect).
+_ID_TOKENS = {
+    "dan", "atau", "yang", "dengan", "dari", "untuk", "pada", "adalah",
+    "ini", "itu", "akan", "tidak", "jika", "maka", "nilai", "carilah",
+    "tentukan", "hitunglah", "buktikan", "diketahui", "misalkan", "hasil",
+    "penyelesaian", "sebuah", "suatu", "bilangan", "persamaan", "bentuk",
+    "sederhana", "berikut", "tersebut", "banyak", "jumlah", "luas", "panjang",
+}
 
 IMAGE_KEYWORDS = re.compile(
     r"(lihat\s+gambar|perhatikan\s+gambar|gambar\s+di\s+(atas|bawah|samping)|"
@@ -30,7 +50,9 @@ TRUE_FALSE_PATTERN = re.compile(
 
 
 def is_multiple_choice(question: str) -> bool:
-    return len(MC_PATTERN.findall(question)) >= 3
+    # normalkan LaTeX line break "\\" jadi newline supaya opsi MC inline ikut terdeteksi.
+    norm = _LATEX_BREAK.sub("\n", question)
+    return len(MC_PATTERN.findall(norm)) >= 3
 
 
 def needs_image(question: str) -> bool:
@@ -42,14 +64,24 @@ def is_true_false(question: str) -> bool:
 
 
 def is_indonesian(text: str) -> bool:
+    """Tahan-LaTeX. Buang HANYA kalau yakin bahasa lain (mis. Inggris). Strategi:
+    1) buang math/LaTeX dulu, 2) teks terlalu pendek -> keep (tak cukup utk dinilai),
+    3) ada token ID -> keep, 4) langdetect: buang hanya jika top bukan 'id' & prob > 0.85."""
+    clean = _LATEX_RE.sub(" ", text)
+    words = set(re.findall(r"[a-zA-Z]+", clean.lower()))
+    if len(words) < 4:
+        return True              # mis. "Faktorkan ...", "Bagaimana sifat parabola"
+    if words & _ID_TOKENS:
+        return True
     try:
-        return detect(text) == "id"
-    except LangDetectException:
-        return False
+        top = detect_langs(clean)[0]
+    except (LangDetectException, IndexError):
+        return True              # ragu -> jangan buang
+    return not (top.lang != "id" and top.prob > 0.85)
 
 
 def passes_rules(item: dict) -> tuple[bool, str]:
-    q = item.get("question", "")
+    q = (item.get("question") or item.get("soal") or "")
     if is_multiple_choice(q):
         return False, "multiple_choice"
     if is_true_false(q):

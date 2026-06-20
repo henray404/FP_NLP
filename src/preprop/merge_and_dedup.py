@@ -31,7 +31,7 @@ def completeness(o: dict) -> tuple:
     return (1 if jaw else 0, 1 if cara else 0, len(cara))
 
 
-def run(inputs: list[Path], output: Path) -> dict:
+def run(inputs: list[Path], output: Path, drop_empty_jawaban: bool = False) -> dict:
     all_rows = []
     per_file = {}
     for p in inputs:
@@ -40,6 +40,7 @@ def run(inputs: list[Path], output: Path) -> dict:
         all_rows.extend(rows)
 
     best: dict[str, dict] = {}
+    dropped_bad_gt = 0
     for o in all_rows:
         soal = (o.get("soal") or "").strip()
         if not soal:
@@ -47,6 +48,10 @@ def run(inputs: list[Path], output: Path) -> dict:
         rec = {"soal": soal,
                "cara": (o.get("cara") or "").strip(),
                "jawaban": (o.get("jawaban") or "").strip()}
+        # buang GT jelek: jawaban kosong (kalau diminta)
+        if drop_empty_jawaban and not rec["jawaban"]:
+            dropped_bad_gt += 1
+            continue
         if soal not in best or completeness(rec) > completeness(best[soal]):
             best[soal] = rec
 
@@ -62,7 +67,8 @@ def run(inputs: list[Path], output: Path) -> dict:
         "input_files": per_file,
         "total_baris_masuk": len(all_rows),
         "soal_unik_keluar": len(deduped),
-        "duplikat_dibuang": len(all_rows) - len(deduped),
+        "gt_jelek_dibuang": dropped_bad_gt,
+        "duplikat_dibuang": len(all_rows) - len(deduped) - dropped_bad_gt,
         "jawaban_masih_kosong": empty_jaw,
         "cara_masih_kosong": empty_cara,
         "output": str(output),
@@ -73,7 +79,10 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--inputs", nargs="+", required=True)
     p.add_argument("--output", default="data/dataset_dedup.jsonl")
+    p.add_argument("--drop-empty-jawaban", action="store_true",
+                   help="buang baris dengan jawaban (GT) kosong")
     args = p.parse_args()
-    stats = run([Path(x) for x in args.inputs], Path(args.output))
+    stats = run([Path(x) for x in args.inputs], Path(args.output),
+                drop_empty_jawaban=args.drop_empty_jawaban)
     for k, v in stats.items():
         print(f"{k:22}: {v}")
