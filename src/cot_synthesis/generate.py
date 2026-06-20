@@ -86,7 +86,7 @@ def _build_vllm(model: str, max_tokens: int, tensor_parallel_size: int = 1):
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     from vllm import LLM
 
-    return LLM(model=model, dtype="float16", gpu_memory_utilization=0.90,
+    return LLM(model=model, dtype="float16", gpu_memory_utilization=0.95,
                max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True,
                tensor_parallel_size=tensor_parallel_size)
 
