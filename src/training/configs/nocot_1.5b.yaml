@@ -1,6 +1,6 @@
 # non-CoT arm, 1.5B student. Identical to cot_1.5b.yaml except the dataset -> isolates CoT effect.
 base_model: Qwen/Qwen2.5-1.5B
-dataset: data/sft/nocot.jsonl
+dataset: data/sft/train/nocot.jsonl
 output_dir: outputs/nocot_1.5b
 mode: nocot
 max_seq_length: 4096

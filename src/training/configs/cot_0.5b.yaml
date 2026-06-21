@@ -1,6 +1,6 @@
 # CoT arm, 0.5B student. Pair with nocot_0.5b.yaml.
 base_model: Qwen/Qwen2.5-0.5B
-dataset: data/sft/cot.jsonl
+dataset: data/sft/train/cot.jsonl
 output_dir: outputs/cot_0.5b
 mode: cot
 max_seq_length: 4096
