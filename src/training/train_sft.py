@@ -228,6 +228,10 @@ def build_and_train(cfg: TrainConfig) -> str:
     tok.save_pretrained(cfg.output_dir)
     Path(cfg.output_dir, "train_config.json").write_text(
         json.dumps(asdict(cfg), ensure_ascii=False, indent=2), encoding="utf-8")
+    # Persist the loss curve (train/eval loss per step) so it survives `del trainer` and can
+    # be plotted later to diagnose under/overfit. See notebooks/train plot cell.
+    Path(cfg.output_dir, "trainer_log.json").write_text(
+        json.dumps(trainer.state.log_history, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"saved adapter -> {cfg.output_dir}")
 
     del model, trainer
