@@ -22,6 +22,8 @@ merged/
 .ipynb_checkpoints/
 
 
+adapters.zip
+
 # Logs
 wandb/
 *.log
