@@ -57,3 +57,35 @@ def test_render_table_missing_cell_dash():
     results = {"CoT": {"numglue": {"accuracy": 0.5}}}     # tak ada 'un'
     table = se.render_table({"CoT": results["CoT"], "x": {"un": {"accuracy": 0.1}}})
     assert "-" in table     # sel kosong -> '-'
+
+
+# -------------------------------
+# sampling metrics: pass@k / maj@k
+# -------------------------------
+
+from src.eval import sampling_metrics as sm
+
+
+def test_pass_at_k_unbiased():
+    # n=4, c=2 -> pass@1 = 1 - C(2,1)/C(4,1) = 0.5 ; pass@2 = 1 - C(2,2)/C(4,2) = 5/6
+    assert sm.pass_at_k(4, 2, 1) == 0.5
+    assert abs(sm.pass_at_k(4, 2, 2) - 5 / 6) < 1e-9
+    assert sm.pass_at_k(5, 0, 3) == 0.0     # tak ada benar
+    assert sm.pass_at_k(5, 5, 3) == 1.0     # semua benar
+    assert sm.pass_at_k(3, 1, 9) == 1.0     # k>n di-clamp ke n, c=1<n -> 1.0? cek: k=3,c=1,n=3 -> n-c=2<3 -> 1.0
+
+
+def test_majority_correct_vote():
+    assert sm.majority_correct(["4", "4", "5"], "4", 3) is True   # mayoritas 4 benar
+    assert sm.majority_correct(["5", "5", "4"], "4", 3) is False  # mayoritas 5 salah
+    assert sm.majority_correct([None, None, None], "4", 3) is False
+
+
+def test_score_samples_shape():
+    rows = [{"soal": "x", "jawaban": "4"}]
+    gens = [["\\boxed{4}", "\\boxed{4}", "\\boxed{5}", "\\boxed{4}", "\\boxed{9}"]]  # 3/5 benar
+    out = sm.score_samples(rows, gens, ks_pass=(1, 2, 3), ks_maj=(3, 5))
+    assert out["n"] == 1 and out["n_samples"] == 5
+    assert 0.0 < out["pass@1"] <= out["pass@3"] <= 1.0   # monoton naik
+    assert out["maj@5"] == 1.0                            # mayoritas (3 dari 5) = 4 benar
+    assert out["format_ok_rate"] == 1.0                  # semua ada \boxed
