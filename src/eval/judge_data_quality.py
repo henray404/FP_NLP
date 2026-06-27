@@ -63,7 +63,7 @@ PROMPT_GOLD = (
     "2) soal LENGKAP/self-contained -- bisa dijawab tanpa tabel/grafik/teks/data luar "
     "yang TIDAK disertakan di soal?\n\n"
     "SOAL:\n{soal}\n\nJAWABAN GOLD: {gold}\n{cara}\n"
-    "Balas TEPAT format ini di baris terakhir:\n"
+    "Boleh berpikir singkat, TAPI baris TERAKHIR WAJIB persis format ini (tanpa tambahan):\n"
     "VERDICT gold=<benar|salah|ragu> lengkap=<ya|tidak>"
 )
 
@@ -74,7 +74,7 @@ PROMPT_TRAIN = (
     "1) jawaban akhir solusi benar secara matematis?\n"
     "2) penalaran valid -- langkah nyambung & logis, bukan ngarang/lompat ke jawaban?\n\n"
     "SOAL:\n{soal}\n\nSOLUSI:\n{solusi}\n\n"
-    "Balas TEPAT format ini di baris terakhir:\n"
+    "Boleh berpikir singkat, TAPI baris TERAKHIR WAJIB persis format ini (tanpa tambahan):\n"
     "VERDICT jawaban=<benar|salah|ragu> penalaran=<valid|cacat|ragu>"
 )
 
@@ -133,7 +133,7 @@ def make_judge_api(model: str, sleep: float = 0.0):
                     model=model,
                     messages=[{"role": "user", "content": p}],
                     temperature=0.0,
-                    max_tokens=300,
+                    max_tokens=700,   # cukup utk penalaran singkat + baris VERDICT (anti-truncate)
                 )
             resp = with_retry(call)
             out.append(resp.choices[0].message.content or "")
@@ -150,7 +150,7 @@ def make_judge_vllm(model: str, tensor_parallel_size: int = 1):
 
     llm = LLM(model=model, dtype="float16", gpu_memory_utilization=0.85,
               max_model_len=4096, tensor_parallel_size=tensor_parallel_size)
-    sp = SamplingParams(temperature=0.0, max_tokens=300)
+    sp = SamplingParams(temperature=0.0, max_tokens=700)
 
     def ask(prompts: list[str]) -> list[str]:
         if not prompts:
@@ -220,6 +220,7 @@ def audit(path: str, judge, *, sample: int | None, seed: int, out_dir: str | Non
             v = {"rid": it["rid"], "soal": it["soal"], **parse_verdict(txt, kind)}
             if kind == "gold":
                 v["gold_ans"] = it.get("gold", "")
+            v["_raw"] = (txt or "").strip()[-240:]   # transparansi: cuplikan balasan judge
             new_verdicts.append(v)
         if out_path:  # checkpoint tiap batch
             with open(out_path, "a", encoding="utf-8") as f:
