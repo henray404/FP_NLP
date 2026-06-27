@@ -1,0 +1,42 @@
+[
+  {
+    "kind": "gold",
+    "n": 12,
+    "gold_benar_rate": 0.417,
+    "gold_salah_rate": 0.25,
+    "gold_ragu_rate": 0.333,
+    "soal_lengkap_rate": 0.417,
+    "path": "data/sft/test/numglue_test.jsonl",
+    "name": "test_numglue"
+  },
+  {
+    "kind": "gold",
+    "n": 12,
+    "gold_benar_rate": 0.75,
+    "gold_salah_rate": 0.0,
+    "gold_ragu_rate": 0.25,
+    "soal_lengkap_rate": 0.833,
+    "path": "data/sft/test/easy_test.jsonl",
+    "name": "test_easy"
+  },
+  {
+    "kind": "train",
+    "n": 12,
+    "jawaban_benar_rate": 0.917,
+    "jawaban_salah_rate": 0.083,
+    "penalaran_valid_rate": 0.917,
+    "penalaran_cacat_rate": 0.083,
+    "path": "data/sft/train/cot.jsonl",
+    "name": "train_cot"
+  },
+  {
+    "kind": "train",
+    "n": 12,
+    "jawaban_benar_rate": 0.75,
+    "jawaban_salah_rate": 0.0,
+    "penalaran_valid_rate": 0.667,
+    "penalaran_cacat_rate": 0.0,
+    "path": "data/sft/train/nocot.jsonl",
+    "name": "train_nocot"
+  }
+]
