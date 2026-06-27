@@ -208,29 +208,35 @@ langsung):
 
 ```mermaid
 flowchart TD
-    A["Sumber soal:<br/>PDF UN / SNBT / OSN +<br/>soal olimpiade terbuka"] --> B["Akuisisi data:<br/>ekstraksi VLM + Gemini API<br/>→ JSONL {soal, jawaban, cara}"]
+    A["Sumber soal:<br/>NumGlue + soal Ujian Nasional<br/>(berbahasa Indonesia)"] --> B["Akuisisi data:<br/>ekstraksi VLM + Gemini API<br/>→ JSONL {soal, jawaban}"]
 
     B --> C1["Gabung + dedup by-soal<br/>(simpan versi terlengkap)"]
     C1 --> C2["Isi jawaban/langkah kosong<br/>via LLM (hanya train pool)"]
     C2 --> C3["Filter aturan:<br/>buang MC/TF/butuh-gambar/non-Indo<br/>+ normalisasi LaTeX"]
-    C3 --> C4["Dekontaminasi + split"]
-    C4 --> H["HOLDOUT evaluasi<br/>(disjoint dari train)"]
+    C3 --> C4["Dekontaminasi + split<br/>(buang 300 baris bocor → sisa 0)"]
+    C4 --> H["Holdout uji (disjoint):<br/>numglue_test 300 + easy_test 300<br/>= 600 soal"]
     C4 --> P["Train pool"]
 
+    S1["Skenario 1:<br/>pilih teacher CoT terbaik<br/>→ DeepSeek-R1-Distill-Qwen-7B"] --> D2
+
     P --> D1["Prompt wrapping (CoT)"]
-    D1 --> D2["Teacher: N kandidat/soal<br/>(n=8, T=0.7, top-p=0.95)"]
+    D1 --> D2["Teacher (DeepSeek-R1-Distill-Qwen-7B):<br/>N=8 kandidat/soal<br/>(T=0.7, top-p=0.95)"]
     D2 --> D3["Validasi kelengkapan:<br/>cek \\boxed{}"]
-    D3 --> D4["LLM judge:<br/>benar? (rejection sampling)"]
+    D3 --> D4["Validasi kebenaran (rejection sampling):<br/>\\boxed prediksi vs gold via LLM judge<br/>(Groq llama-3.1-8b / vLLM)"]
     D4 --> E["Solusi benar<br/>(boleh >1 per soal)"]
 
-    E --> F1["Dataset CoT<br/>(ChatML: langkah + boxed)"]
-    E --> F2["Dataset non-CoT<br/>(ChatML: boxed saja)"]
-    F1 --> G["QLoRA SFT<br/>student Qwen2.5 0.5B/1.5B<br/>(response-only)"]
+    E --> F1["Dataset CoT (2.709)<br/>ChatML: langkah + \\boxed"]
+    E --> F2["Dataset non-CoT (2.709)<br/>ChatML: \\boxed saja<br/>(soal identik dgn CoT)"]
+    F1 --> G["QLoRA SFT student Qwen2.5-1.5B/0.5B<br/>(response-only, hiperparameter identik)"]
     F2 --> G
+    G --> AD["2 adapter LoRA:<br/>CoT & non-CoT"]
 
-    G --> I["Evaluasi:<br/>pass@1, pass@4, maj@4"]
+    AD --> I["Evaluasi (sampling n=5, T=0.7, top-p=0.95):<br/>pass@1/2/3 + maj@3/5"]
     H --> I
-    I --> J["Skenario 1-4:<br/>bandingkan hasil"]
+
+    I --> J2["Skenario 2:<br/>model CoT terbaik lintas-dataset"]
+    I --> J3["Skenario 3:<br/>CoT vs non-CoT (Δ per metrik)"]
+    I --> J4["Skenario 4:<br/>vs baseline zero-shot<br/>(OpenMath-Nemotron-1.5B,<br/>SeaLLMs-v3-1.5B-Chat,<br/>Qwen2.5-1.5B-Instruct)"]
 ```
 **Gambar 3.1** Alur sistem penelitian.
 

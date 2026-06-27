@@ -23,6 +23,8 @@ merged/
 
 
 adapters.zip
+adapters_s3.zip
+adapters/
 
 # Logs
 wandb/
