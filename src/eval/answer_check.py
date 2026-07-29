@@ -72,7 +72,11 @@ def extract_boxed(text: str) -> str | None:
 
 _TEXT_WRAP = re.compile(r"\\(?:text|mathrm|mbox|operatorname)\s*\{([^{}]*)\}")
 _LEFT_RIGHT = re.compile(r"\\(?:left|right|,|;|!|quad|qquad)")
-_ASSIGN = re.compile(r"^[A-Za-z]\s*=\s*")  # buang prefix "c=" / "x ="
+_ASSIGN = re.compile(r"^[A-Za-z]'?\s*=\s*")  # buang prefix "c=" / "x =" / "A'="
+_MC_PREFIX = re.compile(r"^\s*[A-Ea-e][.)]\s+(?=\S)")  # "A. 4" / "B) -17" -> "4" / "-17"
+_FRAC = re.compile(r"\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}")  # \frac{a}{b} -> (a)/(b)
+# angka diikuti satuan/teks: "135 dolar", "2 mol", "150%" -> ambil angkanya saja.
+_NUM_UNIT = re.compile(r"^\s*(-?\d+(?:[.,]\d+)?)\s*[a-zA-Z%°]*\s*$")
 
 
 def strip_latex_delims(s: str) -> str:
@@ -81,6 +85,7 @@ def strip_latex_delims(s: str) -> str:
     s = re.sub(r"\\[()\[\]]", "", s)          # \( \) \[ \]
     s = s.replace("$$", "").replace("$", "")
     s = s.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
+    s = _FRAC.sub(r"(\1)/(\2)", s)            # \frac{7}{15} -> (7)/(15) cocokkan dgn 7/15
     return s.strip()
 
 
@@ -93,10 +98,12 @@ def normalize_str(s: str) -> str:
     s = s.strip("$").strip()
     s = _TEXT_WRAP.sub(r"\1", s)
     s = _LEFT_RIGHT.sub("", s)
+    s = _MC_PREFIX.sub("", s)   # prefix pilihan ganda "A. " sebelum assign
     s = _ASSIGN.sub("", s)
     # unit/teks umum di akhir jawaban
     s = re.sub(r"\\(?:cdot|times)", "*", s)
     s = s.replace("\\%", "%").replace("\\$", "")
+    s = re.sub(r"\((-?\d+(?:\.\d+)?)\)", r"\1", s)   # (7)/(15) -> 7/15 (jaga tuple (3,7))
     s = s.replace(" ", "")
     # ribuan: 1,000 -> 1000 (koma di antara digit)
     s = re.sub(r"(?<=\d),(?=\d{3}\b)", "", s)
@@ -161,7 +168,9 @@ def _numeric_equal(a: str, b: str, tol: float = 1e-6) -> bool:
             try:
                 return float(x)
             except Exception:
-                return None
+                # "135 dolar" / "2 mol" -> ambil angka di depan satuan
+                m = _NUM_UNIT.match(x)
+                return float(m.group(1).replace(",", ".")) if m else None
     na, nb = to_num(a), to_num(b)
     if na is None or nb is None:
         return False

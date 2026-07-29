@@ -24,8 +24,16 @@ CASES = [
     # ekuivalensi latex: \(\) wrapper, \dfrac, faktor vs ekspansi
     (r"\boxed{\dfrac{1}{n^2+3n+2}}", r"\(\frac{1}{(n+1)(n+2)}\)", True),
     (r"\boxed{2}", "c=2", True),                 # gold ada prefix var
+    # --- patch grader: \frac vs slash, pilihan ganda, satuan, prime, tuple ---
+    (r"\boxed{\frac{7}{15}}", "7/15", True),     # \frac{a}{b} == a/b
+    (r"\boxed{4}", "A. 4", True),                # gold pilihan ganda "A. 4"
+    (r"\boxed{-17}", "B) -17", True),            # "B) -17"
+    (r"\boxed{135}", "135 dolar", True),         # angka + satuan
+    (r"\boxed{2}", "2 mol", True),
+    (r"\boxed{(5,10)}", "A' = (5,10)", True),    # prefix "A' ="
     # salah beneran
     (r"\boxed{10}", "11", False),
+    (r"\boxed{tahun 1998}", "15", False),        # jangan match angka nyasar di teks
 ]
 
 
