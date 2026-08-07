@@ -29,6 +29,7 @@ openai              # OpenAI-compatible client: Groq teacher + LLM judge (cot_sy
 jsonlines
 tqdm
 python-dotenv
+matplotlib     # visualisasi notebook (notebooks/revisi/07_bersihkan_easy_clean.ipynb)
 
 # Evaluation
 sympy

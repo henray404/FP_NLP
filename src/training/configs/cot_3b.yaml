@@ -1,0 +1,18 @@
+# CoT arm, 3B student. Pair with nocot_3b.yaml (identical hyperparams, only dataset differs).
+# Qwen2.5 base (BUKAN -Instruct): varian Instruct sudah punya kemampuan CoT bawaan sehingga
+# mengaburkan efek data CoT yang justru sedang diukur Skenario 3.
+# Keluarga model sengaja tetap Qwen2.5 seperti 0.5B/1.5B supaya kurva kapasitas
+# 0.5B -> 1.5B -> 3B bersih dari confound pergantian keluarga model.
+base_model: Qwen/Qwen2.5-3B
+dataset: data/sft/train/cot.jsonl
+output_dir: outputs/cot_3b
+mode: cot
+max_seq_length: 4096
+epochs: 2.0
+# A6000 48 GB: batch dinaikkan, grad_accum diturunkan -> batch efektif tetap 16
+# (sama dengan 2x8 pada config 0.5B/1.5B), tapi wall-clock jauh lebih cepat.
+batch_size: 8
+grad_accum: 2
+learning_rate: 2.0e-4
+val_ratio: 0.05
+train_on_responses_only: true

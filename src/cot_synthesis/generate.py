@@ -77,8 +77,14 @@ def _api_one(client, prompt: str, model: str, temperature: float, top_p: float,
     return text
 
 
-def _build_vllm(model: str, max_tokens: int, tensor_parallel_size: int = 1):
-    """Build the vLLM engine ONCE (model load is the expensive part). Reused across batches."""
+def _build_vllm(model: str, max_tokens: int, tensor_parallel_size: int = 1,
+                dtype: str = "float16"):
+    """Build the vLLM engine ONCE (model load is the expensive part). Reused across batches.
+
+    dtype: "float16" default (T4/compute 7.5 has no bf16). On Ampere+ (A6000/A100) pass
+    "bfloat16" -- Qwen3 and the R1-Distill family are trained in bf16, and long reasoning
+    chains in fp16 risk overflow.
+    """
     import os
     # T4 (compute 7.5): FlashInfer attention compiles but fails at runtime (BatchPrefill "invalid
     # argument"), so the Kaggle notebook uninstalls flashinfer -> vLLM falls back to Triton attention.
@@ -86,7 +92,7 @@ def _build_vllm(model: str, max_tokens: int, tensor_parallel_size: int = 1):
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     from vllm import LLM
 
-    return LLM(model=model, dtype="float16", gpu_memory_utilization=0.95,
+    return LLM(model=model, dtype=dtype, gpu_memory_utilization=0.95,
                max_model_len=max(4096, max_tokens + 1024), trust_remote_code=True,
                tensor_parallel_size=tensor_parallel_size)
 
@@ -102,10 +108,11 @@ def _vllm_chat(llm, prompts: list[str], n: int, temperature: float, top_p: float
 
 
 def generate_vllm(prompts: list[str], model: str, n: int, temperature: float,
-                  top_p: float, max_tokens: int, tensor_parallel_size: int = 1) -> list[list[str]]:
+                  top_p: float, max_tokens: int, tensor_parallel_size: int = 1,
+                  dtype: str = "float16") -> list[list[str]]:
     """One-shot helper (builds engine + generates all prompts). For batched/resumable runs
     use run_generate, which builds the engine once and checkpoints per batch."""
-    llm = _build_vllm(model, max_tokens, tensor_parallel_size)
+    llm = _build_vllm(model, max_tokens, tensor_parallel_size, dtype)
     return _vllm_chat(llm, prompts, n, temperature, top_p, max_tokens)
 
 
@@ -126,7 +133,7 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
                  model: str, n: int = 8, temperature: float = 0.7, top_p: float = 0.95,
                  max_tokens: int = 4096, limit: int | None = None, sleep: float = 0.0,
                  tensor_parallel_size: int = 1, batch_size: int = 64,
-                 shard: int = 0, num_shards: int = 1) -> dict:
+                 shard: int = 0, num_shards: int = 1, dtype: str = "float16") -> dict:
     if not 0 <= shard < max(num_shards, 1):
         raise ValueError(f"shard must be in [0, {num_shards}), got {shard}")
     input_path, out_path = Path(input_path), Path(out_path)
@@ -156,7 +163,7 @@ def run_generate(input_path: str | Path, out_path: str | Path, *, backend: str,
         # Build the engine ONCE, then generate batch_size problems at a time and flush after
         # each batch. A flushed batch is a checkpoint: if the Kaggle session dies, rerunning
         # skips finished problems (via _already_done) and resumes from the next batch.
-        llm = _build_vllm(model, max_tokens, tensor_parallel_size)
+        llm = _build_vllm(model, max_tokens, tensor_parallel_size, dtype)
         with open(out_path, "a", encoding="utf-8") as f:
             for start in range(0, len(todo), batch_size):
                 chunk = todo[start:start + batch_size]
