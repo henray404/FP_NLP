@@ -1,0 +1,14 @@
+{
+  "input": 2336,
+  "keep": 2254,
+  "dropped": 82,
+  "review": 0,
+  "alasan_drop": {
+    "latex_soal_timpang": 4,
+    "soal_terlalu_pendek": 1,
+    "butuh_gambar": 77
+  },
+  "keep_path": "data\\Final\\easy_clean_v3.jsonl",
+  "dropped_path": "data\\Final\\easy_clean_v3_dropped.jsonl",
+  "review_path": "data\\Final\\easy_clean_v3_review.jsonl"
+}

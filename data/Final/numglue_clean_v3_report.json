@@ -1,0 +1,13 @@
+{
+  "input": 3831,
+  "keep": 3762,
+  "dropped": 69,
+  "review": 0,
+  "alasan_drop": {
+    "latex_soal_timpang": 62,
+    "soal_bukan_indonesia": 7
+  },
+  "keep_path": "data\\Final\\numglue_clean_v3.jsonl",
+  "dropped_path": "data\\Final\\numglue_clean_v3_dropped.jsonl",
+  "review_path": "data\\Final\\numglue_clean_v3_review.jsonl"
+}

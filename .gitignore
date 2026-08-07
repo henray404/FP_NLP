@@ -9,6 +9,16 @@ __pycache__/
 data/*
 
 !data/README.md
+
+# KECUALI dataset train-ready v3 (~1,3 MB, kolom `cara` sudah dibuang).
+# Ini input pipeline CoT, cukup kecil untuk di-track supaya eksperimen
+# reproducible tanpa harus tukar file lewat Drive.
+!data/Final/
+data/Final/*
+!data/Final/*_v3.jsonl
+!data/Final/*_v3_dropped.jsonl
+!data/Final/*_v3_review.jsonl
+!data/Final/*_v3_report.json
 CLAUDE_PROMPT.md
 CLAUDE.md
 
