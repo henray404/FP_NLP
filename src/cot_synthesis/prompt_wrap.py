@@ -26,10 +26,30 @@ PROMPT_NOCOT = (
 _TEMPLATES = {"cot": PROMPT_COT, "nocot": PROMPT_NOCOT}
 
 
+_SENTINEL = "\x00SOAL\x00"
+
+
 def wrap(soal: str, mode: str = "cot") -> str:
     if mode not in _TEMPLATES:
         raise ValueError(f"mode must be one of {list(_TEMPLATES)}, got {mode!r}")
     return _TEMPLATES[mode].format(soal=soal.strip())
+
+
+def unwrap(prompt: str, mode: str | None = None) -> str:
+    """Kebalikan `wrap`: kupas instruksinya, kembalikan `soal` mentah.
+
+    Dipakai verify_pairing.py untuk membandingkan himpunan soal antara cot.jsonl dan
+    nocot.jsonl -- kedua file hanya menyimpan prompt yang sudah dibungkus, tanpa kolom id.
+    `mode=None` mencoba semua template. Kalau tidak ada yang cocok, prompt dikembalikan apa
+    adanya (sudah di-strip) supaya perbandingan tetap jalan pada data lama.
+    """
+    templates = _TEMPLATES if mode is None else {mode: _TEMPLATES[mode]}
+    for tpl in templates.values():
+        head, _, tail = tpl.format(soal=_SENTINEL).partition(_SENTINEL)
+        if prompt.startswith(head) and prompt.endswith(tail):
+            end = len(prompt) - len(tail) if tail else len(prompt)
+            return prompt[len(head):end].strip()
+    return prompt.strip()
 
 
 def wrap_item(item: dict, mode: str = "cot") -> str:
