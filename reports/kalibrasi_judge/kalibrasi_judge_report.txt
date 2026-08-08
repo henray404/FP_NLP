@@ -1,0 +1,24 @@
+KALIBRASI JUDGE vs ANOTASI MANUAL
+==============================================================
+model judge     : Qwen/Qwen2.5-7B-Instruct
+sampel          : 260 baris (seed=7)
+dinilai Q1/Q2   : 260 / 260
+ditandai judge  : Q1 20, Q2 169
+
+Tahap A (regex, sebelum judge): 9 baris terbuang, 0 di antaranya juga positif manual Q1
+
+Q1 keterjawaban soal — 10 positif manual
+  TP   9   FP  11   FN   1
+  presisi 0.450  (n= 20)  CI95 Wilson [0.258, 0.658]   <- BATAS BAWAH (lihat catatan label lemah)
+  recall  0.900  (n= 10)  CI95 Wilson [0.596, 0.982]   <- lebar 39 poin persen
+  tertangkap: [53, 108, 111, 140, 144, 203, 215, 220, 222]
+  meleset   : [25]
+
+Q2 kelayakan bentuk gold — 1 positif manual   <== TIDAK SAHIH, n positif terlalu kecil
+  TP   0   FP 169   FN   1
+  presisi 0.000  (n=169)  CI95 Wilson [0.000, 0.022]   <- BATAS BAWAH (lihat catatan label lemah)
+  recall  0.000  (n=  1)  CI95 Wilson [0.000, 0.793]   <- lebar 79 poin persen
+  PERINGATAN: acuan Q2 hanya 1 baris positif. Angka presisi/recall di atas TIDAK layak dikutip sebagai performa Q2 — n-nya terlalu kecil untuk membedakan judge bagus dari judge asal. Perlu anotasi Q2 tambahan sebelum klaim apa pun.
+
+CATATAN LABEL: baris yang tidak ditandai manual = label LEMAH ('dianggap wajar saat disapu'), bukan label negatif terverifikasi. Maka FP yang terhitung adalah BATAS ATAS dan presisi yang dilaporkan adalah BATAS BAWAH.
+CATATAN n KECIL: recall Q1 dihitung dari 10 positif. Interval Wilson di atas itulah hasil sesungguhnya; titik estimasinya sendiri tidak bermakna.
