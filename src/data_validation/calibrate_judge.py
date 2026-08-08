@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 
 from src.data_validation import calibration_labels as labels
@@ -135,16 +136,23 @@ CATATAN_LABEL_LEMAH = (
 # Judge
 # -------------------------------
 
-def _make_judge_hf(model: str, batch_ukuran_maks: int = 8, device_map: str = "auto"):
+def _make_judge_hf(model: str, batch_ukuran_maks: int = 8, device_map: str = "auto",
+                   pakai_chat_template: bool = True):
     """Judge lewat transformers — jalan keluar kalau vLLM tak terpasang.
 
     Greedy (`do_sample=False`, 4 token) supaya sepadan dengan `SamplingParams(temperature=0.0,
-    max_tokens=4)` di backend vLLM. Vonis tetap dibaca `_is_ya` dari `judge_quality.py`, jadi
-    backend ini dan vLLM menilai dengan prompt + parser yang sama persis.
+    max_tokens=4)` di backend vLLM. Vonis tetap dibaca `_is_ya` dari `judge_quality.py`.
 
     `device_map="auto"` (default) membelah model ke semua GPU yang ada — perlu untuk judge 7B
     di 2xT4 Kaggle, karena fp16-nya ~15 GB dan satu T4 hanya 15 GB terpakai. Butuh `accelerate`.
     Pakai `"cuda:0"` kalau ingin memaksa satu kartu.
+
+    `pakai_chat_template` adalah SATU-SATUNYA beda yang disengaja antara backend ini dan vLLM.
+    Judge-nya model `-Instruct`; backend vLLM (`judge_quality._make_judge_vllm`) menyodorkan
+    prompt mentah tanpa template, backend ini membungkusnya. Setel `False` untuk meniru jalur
+    vLLM persis — dipakai menguji apakah kegagalan Q2 (65% baris ditandai) berasal dari
+    ketiadaan template atau memang batas kemampuan judge. Tanpa flag ini, dua backend berbeda
+    di dua hal sekaligus dan penyebabnya tak bisa dipisahkan.
     """
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -160,9 +168,12 @@ def _make_judge_hf(model: str, batch_ukuran_maks: int = 8, device_map: str = "au
         hasil: list[bool] = []
         for mulai in range(0, len(prompts), batch_ukuran_maks):
             potongan = prompts[mulai:mulai + batch_ukuran_maks]
-            teks = [tok.apply_chat_template([{"role": "user", "content": p}],
-                                            tokenize=False, add_generation_prompt=True)
-                    for p in potongan]
+            if pakai_chat_template:
+                teks = [tok.apply_chat_template([{"role": "user", "content": p}],
+                                                tokenize=False, add_generation_prompt=True)
+                        for p in potongan]
+            else:
+                teks = list(potongan)   # prompt mentah, meniru jalur vLLM
             enc = tok(teks, return_tensors="pt", padding=True, truncation=True,
                       max_length=2048).to(llm.device)
             with torch.no_grad():
@@ -176,11 +187,12 @@ def _make_judge_hf(model: str, batch_ukuran_maks: int = 8, device_map: str = "au
 
 
 def buat_judge(backend: str, model: str | None, tensor_parallel_size: int = 1,
-               device_map: str = "auto"):
+               device_map: str = "auto", pakai_chat_template: bool = True):
     """Kembalikan (fungsi_judge, nama_model) sesuai backend."""
     if backend == "hf":
         nama = model or DEFAULT_HF_JUDGE
-        return _make_judge_hf(nama, device_map=device_map), nama
+        return _make_judge_hf(nama, device_map=device_map,
+                              pakai_chat_template=pakai_chat_template), nama
     if backend == "vllm":
         nama = model or DEFAULT_VLLM_JUDGE
         return _make_judge_vllm(nama, tensor_parallel_size), nama
@@ -226,6 +238,64 @@ def evaluasi(sampel: list[dict], q1: dict[int, bool], q2: dict[int, bool],
         "meleset_q1": sorted(acuan_q1 - rusak_q1),
         "tertangkap_q1": sorted(acuan_q1 & rusak_q1),
     }
+
+
+ANGKA_POLOS = re.compile(r"^-?[\d.,]+$")
+
+
+def bentuk_jawaban(jawaban: str) -> str:
+    """Kelas bentuk kunci jawaban: 'angka_polos' | 'latex' | 'teks_lain'.
+
+    Dipakai mengukur bias format judge Q2. Urutan cek penting: angka polos dites lebih dulu
+    supaya '6.525' tidak terbaca teks, dan LaTeX dites sebelum teks_lain.
+    """
+    j = (jawaban or "").strip()
+    if ANGKA_POLOS.match(j):
+        return "angka_polos"
+    if "$" in j or "\\" in j:
+        return "latex"
+    return "teks_lain"
+
+
+def silang_bentuk_jawaban(sampel: list[dict], vonis: dict[int, bool]) -> dict:
+    """Silangkan vonis judge dengan bentuk kunci jawaban.
+
+    Kenapa ini ada: Q2 menandai 65% baris pada run pertama sambil meleset dari satu-satunya
+    positif manual -- angka agregat saja tidak menjelaskan apa pun. Silang ini menunjukkan
+    judge menolak 91% jawaban angka polos (bentuk paling IDEAL untuk jawaban akhir) sementara
+    meloloskan separuh LaTeX, yaitu menilai penampilan alih-alih tipe. Kalau uji chat template
+    memperbaiki keadaan, angka 91% itulah yang harus turun.
+    """
+    tabel: dict[str, dict[str, int]] = {}
+    for pos, ok in vonis.items():
+        kelas = bentuk_jawaban(str(sampel[pos].get("jawaban", "")))
+        baris = tabel.setdefault(kelas, {"TIDAK": 0, "YA": 0})
+        baris["YA" if ok else "TIDAK"] += 1
+
+    for kelas, baris in tabel.items():
+        n = baris["TIDAK"] + baris["YA"]
+        baris["n"] = n
+        baris["persen_ditandai"] = 100 * baris["TIDAK"] / n if n else float("nan")
+    return tabel
+
+
+def cetak_silang(tabel: dict, judul: str = "Vonis Q2 vs bentuk kunci jawaban") -> str:
+    """Tabel silang siap tempel ke komentar issue."""
+    baris = [judul, f"{'kelas jawaban':16} {'TIDAK':>6} {'YA':>5} {'n':>5} {'% ditandai':>11}"]
+    total = {"TIDAK": 0, "YA": 0}
+    for kelas in ("angka_polos", "teks_lain", "latex"):
+        b = tabel.get(kelas)
+        if not b:
+            continue
+        total["TIDAK"] += b["TIDAK"]
+        total["YA"] += b["YA"]
+        baris.append(f"{kelas:16} {b['TIDAK']:6d} {b['YA']:5d} {b['n']:5d} "
+                     f"{b['persen_ditandai']:10.0f}%")
+    n = total["TIDAK"] + total["YA"]
+    if n:
+        baris.append(f"{'TOTAL':16} {total['TIDAK']:6d} {total['YA']:5d} {n:5d} "
+                     f"{100 * total['TIDAK'] / n:10.0f}%")
+    return "\n".join(baris)
 
 
 def ringkas_stage_a(sampel: list[dict]) -> dict:
@@ -284,7 +354,8 @@ def laporan(hasil: dict, stage: dict, model: str) -> str:
 def run(input_v2: Path, out_dir: Path, *, judge_backend: str = "hf",
         judge_model: str | None = None, tensor_parallel_size: int = 1,
         batch_size: int = 16, regenerasi: bool = True,
-        sertakan_ragu: bool = False, device_map: str = "auto") -> dict:
+        sertakan_ragu: bool = False, device_map: str = "auto",
+        pakai_chat_template: bool = True) -> dict:
     """Pipa penuh: regenerasi v2 -> sampel 260 -> judge Q1/Q2 -> metrik + laporan."""
     from src.preprop import clean_easy_v2
 
@@ -295,7 +366,8 @@ def run(input_v2: Path, out_dir: Path, *, judge_backend: str = "hf",
     sampel = labels.sampel_kalibrasi(input_v2)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    judge, model = buat_judge(judge_backend, judge_model, tensor_parallel_size, device_map)
+    judge, model = buat_judge(judge_backend, judge_model, tensor_parallel_size, device_map,
+                              pakai_chat_template)
     done_q1 = run_judge(sampel, judge, Q1_PROMPT, "Q1", out_dir / "kalibrasi_q1.progress",
                         batch_size, {"soal": "soal"})
     done_q2 = run_judge(sampel, judge, Q2_PROMPT, "Q2", out_dir / "kalibrasi_q2.progress",
@@ -310,9 +382,22 @@ def run(input_v2: Path, out_dir: Path, *, judge_backend: str = "hf",
     print(teks)
 
     (out_dir / "kalibrasi_judge_report.txt").write_text(teks, encoding="utf-8")
+    # Provenans ikut disimpan. Run pertama (commit f049f91) hanya mencatat `model`, sehingga
+    # tidak bisa dipastikan apakah judge dijalankan lewat vLLM (prompt mentah) atau hf (chat
+    # template) -- padahal itu justru tersangka utama kegagalan Q2. Jangan sampai terulang.
     (out_dir / "kalibrasi_judge_report.json").write_text(
-        json.dumps({"model": model, "hasil": hasil, "stage_a": stage["n_drop"]},
-                   ensure_ascii=False, indent=2, default=list), encoding="utf-8")
+        json.dumps({
+            "model": model,
+            "backend": judge_backend,
+            "device_map": device_map if judge_backend == "hf" else None,
+            # vllm menyodorkan prompt mentah; api lewat chat.completions jadi template
+            # diterapkan di sisi server; hf tergantung flag.
+            "pakai_chat_template": (pakai_chat_template if judge_backend == "hf"
+                                    else judge_backend == "api"),
+            "batch_size": batch_size,
+            "hasil": hasil,
+            "stage_a": stage["n_drop"],
+        }, ensure_ascii=False, indent=2, default=list), encoding="utf-8")
     return hasil
 
 
@@ -378,7 +463,29 @@ def self_check() -> None:
     teks = laporan(hasil, {"n_drop": 12, "tumpang_tindih_q1": [53, 108]}, "model-palsu")
     assert "TIDAK SAHIH" in teks and "BATAS BAWAH" in teks and "label LEMAH" in teks
 
-    print("self-check OK: 6 kasus Wilson, 4 kasus metrik, 1 jalur evaluasi penuh (vonis palsu)")
+    # Klasifikasi bentuk jawaban -- contoh diambil dari sampel nyata (lihat komentar issue #2).
+    assert bentuk_jawaban("13") == "angka_polos"
+    assert bentuk_jawaban("6.525") == "angka_polos"
+    assert bentuk_jawaban("-2012") == "angka_polos"
+    assert bentuk_jawaban("0") == "angka_polos"
+    assert bentuk_jawaban(r"$\frac{1}{2}$") == "latex"
+    assert bentuk_jawaban(r"4\sqrt{2}") == "latex"
+    assert bentuk_jawaban("(7, 8)") == "teks_lain"
+    assert bentuk_jawaban("Rp. 742.500,00") == "teks_lain"
+    assert bentuk_jawaban("") == "teks_lain"
+
+    # Silang: judge menolak semua angka polos, meloloskan semua LaTeX -> bias format maksimal.
+    sampel_bentuk = [{"jawaban": "13"}, {"jawaban": "840"}, {"jawaban": r"$\pi$"},
+                     {"jawaban": "(1, 2)"}]
+    tabel = silang_bentuk_jawaban(sampel_bentuk, {0: False, 1: False, 2: True, 3: True})
+    assert tabel["angka_polos"]["persen_ditandai"] == 100.0
+    assert tabel["latex"]["persen_ditandai"] == 0.0
+    assert tabel["angka_polos"]["n"] == 2 and tabel["teks_lain"]["n"] == 1
+    baris_tabel = cetak_silang(tabel)
+    assert "angka_polos" in baris_tabel and "TOTAL" in baris_tabel
+
+    print("self-check OK: 6 kasus Wilson, 4 kasus metrik, 1 jalur evaluasi penuh (vonis palsu), "
+          "9 kasus bentuk jawaban, 1 tabel silang")
     print(f"  contoh: recall Q1 7/10 = 0,700 dengan CI95 Wilson "
           f"[{lo:.3f}, {hi:.3f}] -> lebar {(hi - lo) * 100:.0f} poin persen")
 
@@ -394,6 +501,9 @@ def main() -> None:
                     help="backend hf: 'auto' membelah ke semua GPU (perlu utk 7B di 2xT4), "
                          "'cuda:0' memaksa satu kartu")
     ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--no-chat-template", action="store_true",
+                    help="backend hf: kirim prompt mentah tanpa chat template, meniru jalur "
+                         "vLLM. Dipakai menguji apakah Q2 gagal karena ketiadaan template")
     ap.add_argument("--no-regen", action="store_true",
                     help="pakai berkas v2 yang ada, jangan bangun ulang")
     ap.add_argument("--sertakan-ragu", action="store_true",
@@ -409,7 +519,8 @@ def main() -> None:
     run(Path(args.input), Path(args.out_dir), judge_backend=args.judge_backend,
         judge_model=args.judge_model, tensor_parallel_size=args.tensor_parallel_size,
         batch_size=args.batch_size, regenerasi=not args.no_regen,
-        sertakan_ragu=args.sertakan_ragu, device_map=args.device_map)
+        sertakan_ragu=args.sertakan_ragu, device_map=args.device_map,
+        pakai_chat_template=not args.no_chat_template)
 
 
 if __name__ == "__main__":
