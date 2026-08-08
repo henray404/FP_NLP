@@ -17,7 +17,12 @@
 | `docs/references/04_teacher_models.md` | kandidat model + status verifikasi repo ID |
 | `docs/references/05_positioning.md` | klaim mana yang boleh, mana yang wajib sitir |
 | `docs/superpowers/specs/2026-08-07-novelty-brainstorm-notes.md` | temuan bug data + rencana judge |
-| `KrocohMasStanis.pdf` | paper versi sekarang — tabel mana saja yang berubah |
+| `reports/Final Project Kelompok 5-2.pdf` | paper versi sekarang — tabel mana saja yang berubah |
+| `2504.16891v1.pdf` (akar repo) | paper AIMO-2, resep yang sedang direplikasi |
+
+> **Koreksi 2026-08-08:** baris terakhir tabel ini dulu menyebut `KrocohMasStanis.pdf`.
+> **File itu tidak pernah ada di repo.** Hanya dua PDF di atas yang ada
+> (`find . -iname "*.pdf"` — dua hasil, keduanya sudah tercantum).
 
 ### Langkah 2 — Brainstorm dulu, jangan langsung eksekusi
 
@@ -29,8 +34,10 @@ Sebelum menulis sel notebook pertama, jawab dulu bersama user:
 3. **Tahap B LLM judge dijalankan atau dilewat?** Kalau dilewat: hemat ~1 jam, tapi kehilangan aset
    kalibrasi untuk paper.
 4. **Berapa kandidat teacher?** 3 (tier 14B saja) atau 5 (plus tier 7B).
-5. **Repo ID berstatus `[Perlu cek]` sudah diverifikasi?** Lihat tabel di `04_teacher_models.md`.
-   Kalau salah nama, notebook gagal di tengah run panjang.
+5. ~~**Repo ID berstatus `[Perlu cek]` sudah diverifikasi?**~~ **SELESAI 2026-08-08.** Semua repo ID
+   di `04_teacher_models.md` sudah dicek lewat HF API, semuanya HTTP 200, kolom lisensi sudah
+   ditambahkan. Yang tersisa untuk dijawab: **lisensi mana yang mengikat.** OpenMath-Nemotron
+   `cc-by-4.0` (wajib atribusi kalau menang bake-off), Qwen2.5-3B `qwen-research` (non-komersial).
 
 **Kalau ada yang belum terjawab, tanya user. Jangan menebak.**
 
@@ -225,6 +232,68 @@ dan Unsloth cukup sering berubah perilakunya antar versi.
 
 ---
 
+## Jebakan `.gitignore` — file data bisa hilang diam-diam
+
+`.gitignore:9` mengabaikan `data/*`. Untuk `data/Final/` polanya lebih halus:
+
+```
+!data/Final/          # .gitignore:16 — foldernya di-un-ignore
+data/Final/*          # .gitignore:17 — TAPI seluruh isinya diabaikan lagi
+!data/Final/*_v3.jsonl          # .gitignore:18 — hanya v3 yang lolos
+!data/Final/*_v3_dropped.jsonl  # :19
+!data/Final/*_v3_review.jsonl   # :20
+!data/Final/*_v3_report.json    # :21
+```
+
+Artinya **hanya berkas ber-infiks `_v3` yang benar-benar ter-track**. Semua nama lain di
+`data/Final/` tidak ikut commit dan lenyap begitu direktori kerja bersih.
+
+**Ini sudah pernah menggigit:** `easy_clean_v2.jsonl` hilang karena pola ini, dan kalibrasi judge
+sempat terputus karena file acuannya tidak ada lagi.
+
+> ⚠️ **Begitu v4 dibuat (Fase 1, output Tahap B judge), tambahkan dulu ke `.gitignore`:**
+> ```
+> !data/Final/*_v4*
+> ```
+> Kalau langkah ini dilewat, `easy_clean_v4.jsonl` dan `numglue_clean_v4.jsonl` akan hilang dengan
+> cara yang persis sama — dan seluruh hilir Fase 2-7 kehilangan input.
+
+---
+
+## Kolom `cara` sudah dibuang di v3 — plafon evaluasi harus diambil dari file asli
+
+v3 membuang kolom `cara` (`src/data_validation/judge_quality.py:256` menyaring kunci `cara` dari
+setiap baris yang disimpan). Konsekuensinya dua metrik **tidak bisa lagi dihitung dari v3**:
+
+| metrik | kode | butuh |
+|---|---|---|
+| `self_consistency` — "cara dataset == gold", dipakai sebagai **plafon akurasi** | `src/eval/data_quality_report.py:35,63` | kolom `cara` |
+| cek `cara_vs_gold_mismatch` — deteksi *label noise* | `src/preprop/clean_testset.py:56` | kolom `cara` |
+
+**Angka plafon evaluasi wajib diambil dari `easy_clean.jsonl` / `numglue_clean.jsonl` yang asli**,
+bukan dari v3/v4. Menjalankan `data_quality_report.py` di atas v3 akan menghasilkan
+`self_consistency` yang menyesatkan, bukan error yang kelihatan.
+
+> Catatan jalur: issue #12 menyebut `data_quality_report.py` dan `clean_testset.py:53`. Jalur
+> sebenarnya di repo adalah `src/eval/data_quality_report.py` dan `src/preprop/clean_testset.py`,
+> dan barisnya **56**, bukan 53. Angka di tabel atas sudah dikoreksi.
+
+---
+
+## Utang paper yang sudah diketahui (`reports/LAPORAN_AKHIR.md`)
+
+Diverifikasi terhadap kode pada 2026-08-08. Semua ini **belum diperbaiki** — dicatat supaya tidak
+ditemukan ulang dari nol.
+
+| lokasi | isi dokumen | isi kode | catatan |
+|---|---|---|---|
+| §3.4 butir 2 | *n*=8 kandidat/soal | `N_CANDIDATES = 4` di **ketiga** notebook Kaggle yang menghasilkan angka paper (`cot_pipeline_kaggle.ipynb`, `_gemma`, `_qwenmath`) | `src/cot_synthesis/generate.py:215` memang *default* 8, dan `notebooks/cot/cot_pipeline_a6000.ipynb` sel 8 memakai `n=8` — **tapi notebook itu belum pernah jalan di GPU**. Angka yang sudah ada di paper berasal dari run N=4 |
+| §3.8 | pass@1, **pass@4, maj@4** | `n_samples=5, ks_pass=(1,2,3), ks_maj=(3,5)` — `src/eval/sample_eval.py:52,119` dan ketiga notebook skenario | Tidak ada satu pun `k=4` di kode. Yang benar: pass@1/2/3 dan maj@3/5 |
+| §3.7 | 4 skenario | rencana sekarang **7 skenario** (S1-S7, lihat tabel di atas) | Daftar di paper ketinggalan; S5-S7 belum tercantum sama sekali |
+| §3.6 | model dasar Qwen2.5-**0.5B/1.5B** | keputusan terkunci: `Qwen/Qwen2.5-3B` base (`src/training/configs/cot_3b.yaml`) | Ditemukan saat verifikasi §3.4/§3.7/§3.8; **di luar lingkup issue #12**, dicatat saja |
+
+---
+
 ## Konsekuensi yang sering kelupaan
 
 **Data berubah → semua tabel paper berubah.** Bukan hanya skenario yang dijalankan ulang:
@@ -235,7 +304,9 @@ bukan skenarionya.
 
 ## Masih perlu diverifikasi
 
-1. Repo ID berstatus `[Perlu cek]` di `04_teacher_models.md`
+1. ~~Repo ID berstatus `[Perlu cek]` di `04_teacher_models.md`~~ — **selesai 2026-08-08**, semua
+   HTTP 200 via HF API. Yang tersisa: **angka** benchmark AceMath dan Qwen3 (masih dari ringkasan
+   sekunder, bukan repo ID)
 2. Apakah baris `jawaban` bare-letter bocor ke holdout lama — cek
    `re.match(r'^[A-E]$', jawaban)` pada file holdout di Kaggle/Drive
 3. Apakah environment Kaggle saat `clean_holdout.py` dijalankan punya `antlr4-python3-runtime`

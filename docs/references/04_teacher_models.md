@@ -22,16 +22,35 @@ Dipilih supaya perbandingan **terkontrol**: parameter sama, filosofi training be
 
 ## Status verifikasi repo ID
 
-| repo | status |
-|---|---|
-| `Qwen/Qwen3-14B` | `[Terverifikasi]` halaman HF muncul di hasil pencarian |
-| `nvidia/OpenMath-Nemotron-14B` | `[Terverifikasi]` halaman HF muncul |
-| `nvidia/OpenMath-Nemotron-32B` | `[Terverifikasi]` halaman HF muncul |
-| `nvidia/OpenMath-Nemotron-14B-Kaggle` | `[Terverifikasi]` halaman HF muncul |
-| `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B` | `[Terverifikasi]` sudah dipakai di repo ini |
-| `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B` | `[Perlu cek]` bagian keluarga distill, belum dibuka |
-| `Qwen/Qwen2.5-Math-7B-Instruct` | `[Perlu cek]` disebut di paper lama, belum dibuka ulang |
-| `Qwen/Qwen3-32B-AWQ` | **`[Belum diverifikasi — tebakan pola nama]`. Jangan dipakai tanpa dicek.** |
+Semua baris di bawah dicek lewat HF API (`GET https://huggingface.co/api/models/<repo>`)
+pada **2026-08-08**. Semua mengembalikan HTTP 200; lisensi diambil dari tag `license:*`
+pada respons yang sama. **Tidak ada lagi repo ID berstatus `[Perlu cek]`.**
+
+| repo | status | lisensi |
+|---|---|---|
+| `Qwen/Qwen3-14B` | `[Terverifikasi]` | `apache-2.0` |
+| `Qwen/Qwen3-32B-AWQ` | `[Terverifikasi]` | `apache-2.0` |
+| `Qwen/Qwen2.5-Math-7B-Instruct` | `[Terverifikasi]` | `apache-2.0` |
+| `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B` | `[Terverifikasi]` | `mit` |
+| `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B` | `[Terverifikasi]` | `mit` |
+| `nvidia/OpenMath-Nemotron-14B` | `[Terverifikasi]` | **`cc-by-4.0`** |
+| `nvidia/OpenMath-Nemotron-32B` | `[Terverifikasi]` | **`cc-by-4.0`** |
+| `nvidia/OpenMath-Nemotron-14B-Kaggle` | `[Terverifikasi]` | **`cc-by-4.0`** |
+| `nvidia/AceMath-RL-Nemotron-7B` | `[Terverifikasi]` | `other` (lisensi NVIDIA sendiri) |
+| `Qwen/Qwen2.5-3B` | `[Terverifikasi]` | **`other` → qwen-research, NON-KOMERSIAL** |
+| `Qwen/Qwen2.5-3B-Instruct` | `[Terverifikasi]` | **`other` → qwen-research, NON-KOMERSIAL** |
+
+`Qwen/Qwen3-32B-AWQ` sebelumnya ditandai *"tebakan pola nama, jangan dipakai tanpa dicek"* —
+tebakan itu **ternyata benar**, peringatannya sudah dihapus.
+
+### Konsekuensi lisensi
+
+- **`cc-by-4.0` (seluruh keluarga OpenMath-Nemotron)** — kalau salah satunya menang bake-off dan
+  CoT-nya dipakai sebagai data latih, **atribusi wajib** disebut di paper, bukan opsional.
+- **qwen-research (`Qwen2.5-3B` dan `-3B-Instruct`)** — non-komersial. Aman untuk riset dan paper,
+  tapi adaptor hasil training **tidak boleh** dirilis untuk pemakaian komersial. Ini menyentuh
+  student utama dan baseline Skenario 4 sekaligus.
+- `mit` dan `apache-2.0` tidak menambah kewajiban apa pun di luar pencantuman lisensi.
 
 ## OpenMath-Nemotron — kenapa penting secara metodologis
 
@@ -57,7 +76,7 @@ diuji. Lihat `03_language_mixing.md` (hipotesis H1).
 |---|---|---|
 | Qwen2.5-Math (7B/72B) | arXiv:2409.12122 | `[Terverifikasi]` ID |
 | AceMath | arXiv:2412.15084, Findings ACL 2025 | `[Terverifikasi]` ID/venue |
-| `nvidia/AceMath-RL-Nemotron-7B` | dilaporkan 69,0% pass@1 AIME 2024 | `[Perlu cek]` angka dari ringkasan |
+| `nvidia/AceMath-RL-Nemotron-7B` | dilaporkan 69,0% pass@1 AIME 2024 | repo ID `[Terverifikasi]`; **angka** masih `[Perlu cek]` — dari ringkasan sekunder |
 
 ## Angka benchmark — HATI-HATI
 
