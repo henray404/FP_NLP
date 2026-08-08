@@ -47,6 +47,10 @@ from pathlib import Path
 
 BARE_LETTER = re.compile(r"^[A-E]$")
 FIGURE_REF = re.compile(r"\[Gambar:|\[Tabel:", re.IGNORECASE)
+# Suffix versi pada nama berkas: `_v2`, `_v3`, ... Ditanggalkan supaya keluaran selalu
+# `<nama>_v3.jsonl`. Sebelumnya hanya `_v2` yang dibuang, sehingga masukan `easy_clean_v3.jsonl`
+# menghasilkan `easy_clean_v3_v3.jsonl`.
+VERSION_SUFFIX = re.compile(r"_v\d+$")
 
 DEFAULT_VLLM_JUDGE = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_API_JUDGE = "llama-3.1-8b-instant"
@@ -216,7 +220,7 @@ def run(input_path: Path, out_dir: Path, *, use_llm: bool = True,
         rows = random.Random(seed).sample(rows, limit)
         print(f"MODE KALIBRASI: {limit} baris acak (seed={seed})")
 
-    stem = input_path.stem.replace("_v2", "")
+    stem = VERSION_SUFFIX.sub("", input_path.stem)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     keep, dropped, review = [], [], []
@@ -284,6 +288,17 @@ def demo() -> None:
                     "jawaban": "12"}) == "butuh_gambar"
     assert stage_a({"soal": "Berapa hasil dari 2 + 3 kali 4?", "jawaban": ""}) == "jawaban_kosong"
     assert _is_ya("YA") and not _is_ya("TIDAK") and not _is_ya("Tidak.")
+
+    # Penanggalan suffix versi: berapa pun angkanya, keluaran tidak boleh dobel-suffix.
+    def _stem(nama: str) -> str:
+        return VERSION_SUFFIX.sub("", Path(nama).stem)
+
+    assert _stem("easy_clean_v2.jsonl") == "easy_clean"
+    assert _stem("easy_clean_v3.jsonl") == "easy_clean"
+    assert _stem("numglue_clean_v10.jsonl") == "numglue_clean"
+    assert _stem("easy_clean.jsonl") == "easy_clean"
+    # `_v2` di tengah nama bukan suffix versi -- jangan ikut dibuang.
+    assert _stem("easy_v2_clean.jsonl") == "easy_v2_clean"
     print("demo OK")
 
 
