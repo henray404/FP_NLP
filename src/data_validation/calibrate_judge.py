@@ -439,26 +439,32 @@ def self_check() -> None:
     assert m["presisi"] != m["presisi"], "presisi 0/0 harus NaN"
     assert m["recall"] == 0.0 and m["presisi_ci"] == (0.0, 1.0)
 
-    # Jalur penuh dengan vonis palsu: judge menangkap 7 dari 10 positif Q1, plus 5 salah tanda.
+    # Jalur penuh dengan vonis palsu. Nilai harapan DITURUNKAN dari `len(Q1_POSITIF)`, bukan
+    # ditulis tetap -- jumlah anotasi memang bertambah seiring waktu (10 -> 20 saat C6 masuk),
+    # dan tes aritmetika tidak boleh ikut rusak setiap kali label diperbarui.
+    n_acuan = len(labels.Q1_POSITIF)
+    n_tangkap = max(1, n_acuan - 3)          # judge melewatkan 3 -> selalu ada TP dan FN
+    n_salah = 5
     sampel_palsu = [{"soal": f"soal ke-{i} yang cukup panjang untuk lolos", "jawaban": str(i),
                      "_idx": i} for i in range(labels.UKURAN_SAMPEL)]
-    tertangkap = set(labels.Q1_POSITIF[:7])
+    tertangkap = set(labels.Q1_POSITIF[:n_tangkap])
     salah_tanda = {200, 201, 202, 204, 205}
+    assert len(salah_tanda) == n_salah
     assert not (salah_tanda & set(labels.Q1_POSITIF)), "kontrol tes bocor ke acuan"
     q1_palsu = {pos: pos not in (tertangkap | salah_tanda)
                 for pos in range(labels.UKURAN_SAMPEL)}
     q2_palsu = {pos: pos != labels.Q2_POSITIF[0] for pos in range(labels.UKURAN_SAMPEL)}
 
     hasil = evaluasi(sampel_palsu, q1_palsu, q2_palsu)
-    assert hasil["q1"]["tp"] == 7 and hasil["q1"]["fn"] == 3 and hasil["q1"]["fp"] == 5
-    assert abs(hasil["q1"]["recall"] - 0.7) < 1e-12
-    assert abs(hasil["q1"]["presisi"] - 7 / 12) < 1e-12
+    assert hasil["q1"]["tp"] == n_tangkap
+    assert hasil["q1"]["fn"] == n_acuan - n_tangkap
+    assert hasil["q1"]["fp"] == n_salah
+    assert abs(hasil["q1"]["recall"] - n_tangkap / n_acuan) < 1e-12
+    assert abs(hasil["q1"]["presisi"] - n_tangkap / (n_tangkap + n_salah)) < 1e-12
     lo, hi = hasil["q1"]["recall_ci"]
-    # 7/10 -> Wilson [0,397, 0,892], lebar 0,495. Pagar 0,45 menjaga klaim "interval lebar"
-    # tetap benar tanpa mengunci angka pastinya.
-    assert (hi - lo) > 0.45, f"CI recall n=10 wajib lebar, dapat {(hi - lo):.3f}"
+    assert lo < n_tangkap / n_acuan < hi, "interval wajib memuat titik estimasi"
     assert hasil["q2"]["tp"] == 1 and hasil["q2_sahih"] is False, "Q2 tak boleh ditandai sahih"
-    assert len(hasil["meleset_q1"]) == 3
+    assert len(hasil["meleset_q1"]) == n_acuan - n_tangkap
 
     teks = laporan(hasil, {"n_drop": 12, "tumpang_tindih_q1": [53, 108]}, "model-palsu")
     assert "TIDAK SAHIH" in teks and "BATAS BAWAH" in teks and "label LEMAH" in teks
@@ -486,8 +492,8 @@ def self_check() -> None:
 
     print("self-check OK: 6 kasus Wilson, 4 kasus metrik, 1 jalur evaluasi penuh (vonis palsu), "
           "9 kasus bentuk jawaban, 1 tabel silang")
-    print(f"  contoh: recall Q1 7/10 = 0,700 dengan CI95 Wilson "
-          f"[{lo:.3f}, {hi:.3f}] -> lebar {(hi - lo) * 100:.0f} poin persen")
+    print(f"  contoh: recall Q1 {n_tangkap}/{n_acuan} = {n_tangkap / n_acuan:.3f} dengan CI95 "
+          f"Wilson [{lo:.3f}, {hi:.3f}] -> lebar {(hi - lo) * 100:.0f} poin persen")
 
 
 def main() -> None:

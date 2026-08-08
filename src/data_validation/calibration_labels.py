@@ -6,9 +6,14 @@ mengecualikan `data/Final/*_v3.*`. Itulah sebabnya `easy_clean_v2.jsonl` sempat 
 memutus kalibrasi -- anotasi manual yang ikut hilang tidak bisa dibuat ulang tanpa menganotasi
 260 baris sekali lagi. Label di sini bertahan karena ia file sumber, bukan data.
 
-Isi: 22 indeks anotasi manual pada sampel `seed=7` dari `easy_clean_v2`, **0-indexed** terhadap
+Isi: 32 indeks anotasi manual pada sampel `seed=7` dari `easy_clean_v2`, **0-indexed** terhadap
 daftar keluaran `sampel_kalibrasi()` (bukan terhadap berkas aslinya). Sudah diverifikasi: 6/6
 probe cocok.
+
+Riwayat: 22 indeks pertama (C1-C5) hasil sapuan manual. 10 indeks berikutnya (C6) datang dari
+arah sebaliknya -- judge menandainya, manusia lalu memeriksa dan mengesahkan. Rinciannya di
+catatan C6 di bawah. Angka presisi Q1 melompat 0,450 -> 0,950 begitu C6 masuk acuan, karena
+sepuluh "false positive" ternyata soal rusak yang luput dari sapuan awal.
 
 Pemakaian: bandingkan vonis judge (`*_q1.progress` / `*_q2.progress` dari `judge_quality.py`
 mode `--limit 260 --seed 7`) terhadap `Q1_POSITIF` / `Q2_POSITIF` untuk menghitung
@@ -39,18 +44,44 @@ C3_MISMATCH = [164, 187, 169, 190]                  # nilai gold salah -> sinyal
 C4_BLEED = [48, 80, 230, 254]                       # cacat di kolom `cara` (sudah dibuang) -> tak terpakai
 C5_CARA_ENG = [58, 103, 124, 207]                   # cacat di `cara` -> tak terpakai
 
+# C6 berbeda asal-usul dari C1-C5, dan bedanya penting untuk paper.
+#
+# C1-C5 lahir dari sapuan manual: manusia membaca sampel lalu menandai yang mencurigakan.
+# C6 lahir terbalik -- judge menandai 20 baris, 11 di antaranya tidak ada di anotasi manapun,
+# lalu kesebelasnya diperiksa manusia satu per satu
+# (`reports/kalibrasi_judge/review_11_fp.md`) dan 10 diakui memang rusak. Jadi baris-baris ini
+# ditemukan mesin, disahkan manusia.
+#
+# Konsekuensinya untuk klaim paper: sapuan manual awal MELEWATKAN 10 soal rusak yang judge
+# tangkap. Itu argumen lebih kuat daripada sekadar "judge setuju dengan manusia" -- judge
+# menambah cakupan, bukan cuma meniru.
+#
+# Kelas kerusakan (sesuai kriteria Q1 di `judge_quality.py:58-67`): variabel/fungsi tak
+# terdefinisi (9, 142), bukan soal melainkan pernyataan atau instruksi (41, 141, 233),
+# butuh konteks soal lain (57, 129), terpotong di tengah kalimat (68), pertanyaan diskusi
+# bukan hitungan (84), perintah aktivitas kelompok (195).
+C6_TAK_TERJAWAB = [9, 41, 57, 68, 84, 129, 141, 142, 195, 233]
+
 KATEGORI: dict[str, list[int]] = {
     "C1_FABRIKASI": C1_FABRIKASI,
     "C2_KORUPSI": C2_KORUPSI,
     "C3_MISMATCH": C3_MISMATCH,
     "C4_BLEED": C4_BLEED,
     "C5_CARA_ENG": C5_CARA_ENG,
+    "C6_TAK_TERJAWAB": C6_TAK_TERJAWAB,
 }
+
+# Baris ke-11 yang ikut ditandai judge tetapi anotator menandainya RAGU: butuh konteks visual
+# atau definisi dari soal sebelumnya, tidak bisa dipastikan dari teksnya sendiri. SENGAJA tidak
+# masuk acuan -- memasukkan yang ragu ke ground truth akan mengembungkan presisi judge secara
+# palsu. Dibiarkan terhitung sebagai false positive; itu sikap konservatif yang benar.
+Q1_RAGU = [64]
 
 # --- Turunan: acuan evaluasi judge -------------------------------------------------------
 
-# Q1 menilai keterjawaban soal. Soal fabrikasi dan soal korup dua-duanya harus divonis TIDAK.
-Q1_POSITIF = sorted(C1_FABRIKASI + C2_KORUPSI)      # 10 baris
+# Q1 menilai keterjawaban soal. Soal fabrikasi, soal korup, dan soal tak-terjawab temuan judge
+# semuanya harus divonis TIDAK.
+Q1_POSITIF = sorted(C1_FABRIKASI + C2_KORUPSI + C6_TAK_TERJAWAB)    # 20 baris
 
 # Q2 hanya menilai BENTUK/TIPE gold, bukan nilainya. Yang pasti: baris 108, gold-nya
 # `\begin{array}` alias tabel.
@@ -107,10 +138,14 @@ def self_check(input_path: str | Path | None = None) -> None:
 
     tumpang_tindih = {i for i in semua if semua.count(i) > 1}
     assert not tumpang_tindih, f"indeks dipakai lebih dari satu kategori: {sorted(tumpang_tindih)}"
-    assert len(semua) == 22, f"total anotasi harus 22, dapat {len(semua)}"
+    assert len(semua) == 32, f"total anotasi harus 32, dapat {len(semua)}"
 
-    assert Q1_POSITIF == sorted(C1_FABRIKASI + C2_KORUPSI)
-    assert len(Q1_POSITIF) == 10, f"Q1_POSITIF harus 10 baris, dapat {len(Q1_POSITIF)}"
+    # RAGU tidak boleh bocor ke kategori manapun -- kalau bocor, ia diam-diam jadi ground truth.
+    assert not set(Q1_RAGU) & set(semua), f"Q1_RAGU {Q1_RAGU} bocor ke KATEGORI"
+
+    assert Q1_POSITIF == sorted(C1_FABRIKASI + C2_KORUPSI + C6_TAK_TERJAWAB)
+    assert len(Q1_POSITIF) == 20, f"Q1_POSITIF harus 20 baris, dapat {len(Q1_POSITIF)}"
+    assert len(C6_TAK_TERJAWAB) == 10, "C6 harus 10 baris (11 diperiksa, 1 ragu dikecualikan)"
     assert set(Q2_POSITIF) <= set(semua), "Q2_POSITIF menunjuk baris yang tidak dianotasi"
     assert set(Q2_POSITIF_RAGU) <= set(semua), "Q2_POSITIF_RAGU menunjuk baris tak dianotasi"
     assert not set(Q2_POSITIF) & set(C3_MISMATCH), "C3 bukan positif Q2 -- lihat catatan di atas"

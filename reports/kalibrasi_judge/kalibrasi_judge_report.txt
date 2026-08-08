@@ -7,11 +7,11 @@ ditandai judge  : Q1 20, Q2 169
 
 Tahap A (regex, sebelum judge): 9 baris terbuang, 0 di antaranya juga positif manual Q1
 
-Q1 keterjawaban soal — 10 positif manual
-  TP   9   FP  11   FN   1
-  presisi 0.450  (n= 20)  CI95 Wilson [0.258, 0.658]   <- BATAS BAWAH (lihat catatan label lemah)
-  recall  0.900  (n= 10)  CI95 Wilson [0.596, 0.982]   <- lebar 39 poin persen
-  tertangkap: [53, 108, 111, 140, 144, 203, 215, 220, 222]
+Q1 keterjawaban soal — 20 positif manual
+  TP  19   FP   1   FN   1
+  presisi 0.950  (n= 20)  CI95 Wilson [0.764, 0.991]   <- BATAS BAWAH (lihat catatan label lemah)
+  recall  0.950  (n= 20)  CI95 Wilson [0.764, 0.991]   <- lebar 23 poin persen
+  tertangkap: [9, 41, 53, 57, 68, 84, 108, 111, 129, 140, 141, 142, 144, 195, 203, 215, 220, 222, 233]
   meleset   : [25]
 
 Q2 kelayakan bentuk gold — 1 positif manual   <== TIDAK SAHIH, n positif terlalu kecil
