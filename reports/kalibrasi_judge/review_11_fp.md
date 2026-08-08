@@ -31,11 +31,11 @@ JAWABAN: 28
 
 usul Claude: _variabel ketiga kosong (\text{ })_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Variabel ketiga pada persamaan H+G+__=6 hilang, sehingga domain/identitas z tidak dapat diketahui. Karena ini termasuk teks tidak lengkap/rusak, Q1 terpenuhi.
 
 ---
 
@@ -48,12 +48,12 @@ JAWABAN: $x \equiv 24 \pmod{49}$
 
 usul Claude: _bukan soal, sudah memuat jawaban_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
 catatan: 
-
+Tidak ada pertanyaan/permasalahan yang harus diselesaikan; teks hanya berupa instruksi dan sudah mencantumkan jawaban.
 ---
 
 ## idx 57
@@ -65,11 +65,11 @@ JAWABAN: ≈ $115{,}13$ menit.
 
 usul Claude: _rujuk konteks soal sebelumnya_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Rumus/model pengisian baterai tidak tersedia dalam soal ini; nilai jawaban 115,13 menit tidak dapat diturunkan hanya dari informasi yang diberikan.
 
 ---
 
@@ -84,9 +84,9 @@ usul Claude: _n tak terdefinisi, rujuk soal lain_
 
 - [ ] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
-- [ ] RAGU  — jangan dipakai di metrik
+- [x] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Kemungkinan membutuhkan konteks visual/diagram atau definisi dari soal sebelumnya untuk menentukan apa yang dimaksud dengan juring berhimpit dan warna yang sama.
 
 ---
 
@@ -99,11 +99,11 @@ JAWABAN: \frac{1}{120}
 
 usul Claude: _terpotong, mulai di tengah kalimat_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Soal dimulai di tengah kalimat (“sehingga berbentuk barisan”), sehingga konteks dan informasi awal yang diperlukan untuk memahami probabilitas tidak tersedia.
 
 ---
 
@@ -116,11 +116,11 @@ JAWABAN: Karena diameter lingkaran adalah garis melintasi lingkaran, bukan sisi 
 
 usul Claude: _pertanyaan diskusi, bukan hitungan_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Pertanyaan bersifat konseptual dan meminta penjelasan, bukan perhitungan matematis.
 
 ---
 
@@ -133,11 +133,11 @@ JAWABAN: y = x + 1
 
 usul Claude: _rujuk soal lain_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Merujuk secara eksplisit pada “soal lain” dan informasi soal yang dirujuk tidak tersedia. Jawaban y=x+1 juga tidak dapat ditentukan hanya dari kemiringan 1.
 
 ---
 
@@ -150,11 +150,13 @@ JAWABAN: \frac{5\sqrt{7}}{3}
 
 usul Claude: _bukan soal ('diserahkan kepada pembaca')_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Bukan soal mandiri; hanya menyatakan bahwa perhitungan panjang garis bagi sudut AA
+′
+ diserahkan sebagai latihan kepada pembaca, tanpa memberikan instruksi/data soal yang lengkap.
 
 ---
 
@@ -167,11 +169,11 @@ JAWABAN: 3
 
 usul Claude: _fungsi i tak terdefinisi_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Fungsi i tidak didefinisikan dalam soal, sehingga informasi yang diperlukan untuk menghitung i(6,7) kemungkinan hilang atau berada pada konteks sebelumnya.
 
 ---
 
@@ -189,11 +191,11 @@ JAWABAN: \begin{aligned}
 
 usul Claude: _perintah aktivitas_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Soal berupa instruksi aktivitas kelompok dan membutuhkan tindakan/observasi dunia nyata (mencari peta dan menentukan lokasi), bukan soal hitungan mandiri.
 
 ---
 
@@ -206,11 +208,11 @@ JAWABAN: 50
 
 usul Claude: _teks penjelasan, bukan soal_
 
-- [ ] RUSAK — masukkan ke Q1_POSITIF
+- [x] RUSAK — masukkan ke Q1_POSITIF
 - [ ] WAJAR — judge salah, ini false positive sungguhan
 - [ ] RAGU  — jangan dipakai di metrik
 
-catatan: 
+catatan: Teks berupa penjelasan cara menentukan median untuk jumlah data genap, bukan soal mandiri. Tidak ada instruksi/pertanyaan yang perlu diselesaikan.
 
 ---
 
