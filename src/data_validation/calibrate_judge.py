@@ -135,11 +135,16 @@ CATATAN_LABEL_LEMAH = (
 # Judge
 # -------------------------------
 
-def _make_judge_hf(model: str, batch_ukuran_maks: int = 8):
-    """Judge lewat transformers di satu GPU lokal — jalan keluar kalau vLLM tak terpasang.
+def _make_judge_hf(model: str, batch_ukuran_maks: int = 8, device_map: str = "auto"):
+    """Judge lewat transformers — jalan keluar kalau vLLM tak terpasang.
 
     Greedy (`do_sample=False`, 4 token) supaya sepadan dengan `SamplingParams(temperature=0.0,
-    max_tokens=4)` di backend vLLM. Vonis tetap dibaca `_is_ya` dari `judge_quality.py`.
+    max_tokens=4)` di backend vLLM. Vonis tetap dibaca `_is_ya` dari `judge_quality.py`, jadi
+    backend ini dan vLLM menilai dengan prompt + parser yang sama persis.
+
+    `device_map="auto"` (default) membelah model ke semua GPU yang ada — perlu untuk judge 7B
+    di 2xT4 Kaggle, karena fp16-nya ~15 GB dan satu T4 hanya 15 GB terpakai. Butuh `accelerate`.
+    Pakai `"cuda:0"` kalau ingin memaksa satu kartu.
     """
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -148,7 +153,7 @@ def _make_judge_hf(model: str, batch_ukuran_maks: int = 8):
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     llm = AutoModelForCausalLM.from_pretrained(
-        model, dtype=torch.float16, device_map="cuda:0")
+        model, dtype=torch.float16, device_map=device_map)
     llm.eval()
 
     def judge_batch(prompts: list[str]) -> list[bool]:
@@ -170,11 +175,12 @@ def _make_judge_hf(model: str, batch_ukuran_maks: int = 8):
     return judge_batch
 
 
-def buat_judge(backend: str, model: str | None, tensor_parallel_size: int = 1):
+def buat_judge(backend: str, model: str | None, tensor_parallel_size: int = 1,
+               device_map: str = "auto"):
     """Kembalikan (fungsi_judge, nama_model) sesuai backend."""
     if backend == "hf":
         nama = model or DEFAULT_HF_JUDGE
-        return _make_judge_hf(nama), nama
+        return _make_judge_hf(nama, device_map=device_map), nama
     if backend == "vllm":
         nama = model or DEFAULT_VLLM_JUDGE
         return _make_judge_vllm(nama, tensor_parallel_size), nama
@@ -278,7 +284,7 @@ def laporan(hasil: dict, stage: dict, model: str) -> str:
 def run(input_v2: Path, out_dir: Path, *, judge_backend: str = "hf",
         judge_model: str | None = None, tensor_parallel_size: int = 1,
         batch_size: int = 16, regenerasi: bool = True,
-        sertakan_ragu: bool = False) -> dict:
+        sertakan_ragu: bool = False, device_map: str = "auto") -> dict:
     """Pipa penuh: regenerasi v2 -> sampel 260 -> judge Q1/Q2 -> metrik + laporan."""
     from src.preprop import clean_easy_v2
 
@@ -289,7 +295,7 @@ def run(input_v2: Path, out_dir: Path, *, judge_backend: str = "hf",
     sampel = labels.sampel_kalibrasi(input_v2)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    judge, model = buat_judge(judge_backend, judge_model, tensor_parallel_size)
+    judge, model = buat_judge(judge_backend, judge_model, tensor_parallel_size, device_map)
     done_q1 = run_judge(sampel, judge, Q1_PROMPT, "Q1", out_dir / "kalibrasi_q1.progress",
                         batch_size, {"soal": "soal"})
     done_q2 = run_judge(sampel, judge, Q2_PROMPT, "Q2", out_dir / "kalibrasi_q2.progress",
@@ -384,6 +390,9 @@ def main() -> None:
     ap.add_argument("--judge-backend", choices=["hf", "vllm", "api"], default="hf")
     ap.add_argument("--judge-model", default=None)
     ap.add_argument("--tensor-parallel-size", type=int, default=1)
+    ap.add_argument("--device-map", default="auto",
+                    help="backend hf: 'auto' membelah ke semua GPU (perlu utk 7B di 2xT4), "
+                         "'cuda:0' memaksa satu kartu")
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--no-regen", action="store_true",
                     help="pakai berkas v2 yang ada, jangan bangun ulang")
@@ -400,7 +409,7 @@ def main() -> None:
     run(Path(args.input), Path(args.out_dir), judge_backend=args.judge_backend,
         judge_model=args.judge_model, tensor_parallel_size=args.tensor_parallel_size,
         batch_size=args.batch_size, regenerasi=not args.no_regen,
-        sertakan_ragu=args.sertakan_ragu)
+        sertakan_ragu=args.sertakan_ragu, device_map=args.device_map)
 
 
 if __name__ == "__main__":
